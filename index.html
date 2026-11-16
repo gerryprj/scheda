@@ -751,7 +751,7 @@
       var on=(i===ui().day);
       b.className="tab"+(on?" active":"");
       b.innerHTML="<span>"+esc(d.name)+"</span>"+(on?'<span class="edit-day">✎</span>':"");
-      b.onclick=function(){ if(on) openRenameDay(); else { ui().day=i; save(); render(); window.scrollTo(0,0); } };
+      b.onclick=function(){ if(on) openRenameDay(); else { ui().day=i; saveLocal(); render(); window.scrollTo(0,0); } };
       t.appendChild(b);
     });
   }
@@ -763,7 +763,7 @@
       chip.className="week-chip"+(i===wk()?" on":"")+(i===now?" now":"");
       chip.textContent=(i+1);
       chip.title = i===now ? "Settimana in corso" : "";
-      (function(idx){ chip.onclick=function(){ ui().week=idx; save(); render(); }; })(i);
+      (function(idx){ chip.onclick=function(){ ui().week=idx; saveLocal(); render(); }; })(i);
       c.appendChild(chip);
     }
     var hasUp=day().exercises.some(function(ex){
@@ -1049,7 +1049,7 @@
       var r=document.createElement("div"); r.className="prog-row"+(p.id===state.active?" on":"");
       r.innerHTML='<div><div class="pn">'+esc(p.name)+'</div><div class="pd">'+(p.start?"Dal "+fmtDate(p.start)+" · ":"")+(p.weeks||6)+" settimane · "+p.days.length+" giornate</div></div>"
         +(p.id===state.active?'<span class="ck">✓</span>':"");
-      r.onclick=function(){ state.active=p.id; save(); render(); openProgs(); toast("Scheda attiva: "+p.name); };
+      r.onclick=function(){ state.active=p.id; saveLocal(); render(); openProgs(); toast("Scheda attiva: "+p.name); };
       box.appendChild(r);
     });
     document.getElementById("progRename").value=prog().name;
@@ -1163,13 +1163,53 @@
   window.__app={
     ready:false,
     get:function(){ return state; },
+    // applica i dati arrivati dal cloud, tenendo giorno/settimana scelti su questo dispositivo
     apply:function(remote){
+      var keepUi=state.ui, keepActive=state.active;
       var before=(remote&&remote.programs)? remote.programs.length : 0;
+      var stamp=remote.updatedAt;
       state=normalize(remote);
-      if(state.programs.length>before) save(); else saveLocal();   // nuova scheda arrivata col file: la manda anche al cloud
+      Object.keys(keepUi||{}).forEach(function(k){ if(state.ui[k]) state.ui[k]=keepUi[k]; });
+      if(state.programs.some(function(p){ return p.id===keepActive; })) state.active=keepActive;
+      if(state.programs.length>before) save();   // nuova scheda arrivata col file: la manda anche al cloud
+      else { state.updatedAt=stamp; saveLocal(); }
       render();
     },
+    // unisce i dati del cloud con quelli del telefono: non si perde nessuna serie registrata
+    merge:function(remote){
+      var local=state;
+      remote.programs.forEach(function(rp){
+        var lp=local.programs.find(function(p){ return p.id===rp.id; });
+        if(lp){ local.programs[local.programs.indexOf(lp)]=rp; } else local.programs.push(rp);
+      });
+      Object.keys(remote.logs||{}).forEach(function(pid){
+        if(!local.logs[pid]) local.logs[pid]={};
+        var L=local.logs[pid], R=remote.logs[pid];
+        Object.keys(R).forEach(function(exId){
+          if(!L[exId]) L[exId]={};
+          Object.keys(R[exId]).forEach(function(w){
+            var r=R[exId][w], l=L[exId][w];
+            if(isEmptyEntry(l) || entrySize(r)>=entrySize(l)) L[exId][w]=r;
+          });
+        });
+      });
+      state=normalize(local); save(); render();
+    },
     toast:toast
+  };
+  function entrySize(v){
+    if(v==null||v===false) return 0;
+    if(v===true) return 1;
+    if(typeof v==="number") return v;
+    if(Array.isArray(v)) return v.length;
+    if(typeof v==="object") return (v.r||0)+((v.kg||[]).filter(function(x){ return x!=null; }).length?0.5:0);
+    return 0;
+  }
+  function isEmptyEntry(v){ return entrySize(v)===0; }
+  window.__app.isEmpty=function(s){
+    var L=s&&s.logs||{};
+    return !Object.keys(L).some(function(pid){ return Object.keys(L[pid]).some(function(e){
+      return Object.keys(L[pid][e]).some(function(w){ return !isEmptyEntry(L[pid][e][w]); }); }); });
   };
   document.getElementById("mSignOut").onclick=function(){
     closeModal("menuSheet");
@@ -1252,6 +1292,7 @@ onAuthStateChanged(auth, async (u) => {
   if(unsub){ unsub(); unsub = null; }
   if(!u){
     ref = null; outItem.style.display = "none";
+    try{ localStorage.removeItem("allenamento_cloud_uid"); }catch(e){}
     status("off", "☁︎ Accedi");
     return;
   }
@@ -1263,14 +1304,25 @@ onAuthStateChanged(auth, async (u) => {
   try{
     const snap = await getDoc(ref);
     const remote = snap.exists() ? snap.data() : null;
-    if(remote && remote.updatedAt > stamp(app.get())){
-      app.apply(JSON.parse(remote.json));
-      app.toast("Dati scaricati dal cloud ✓");
-      ready = true; status("ok", "☁︎ Salvato");
-      if(stamp(app.get()) > remote.updatedAt) push();   // è arrivata una scheda nuova col file
+    const linkKey = "allenamento_cloud_uid";
+    let linked = null; try{ linked = localStorage.getItem(linkKey); }catch(e){}
+    if(!remote){
+      ready = true; await push();                                   // cloud vuoto: carica i dati del telefono
     }else{
-      ready = true; await push();                          // primo accesso o telefono più aggiornato
+      const rs = JSON.parse(remote.json);
+      if(linked !== u.uid){
+        // primo accesso da questo dispositivo: unisce, il cloud ha la precedenza
+        if(app.isEmpty(app.get())) app.apply(rs); else app.merge(rs);
+        app.toast("Dati scaricati dal cloud ✓");
+        ready = true; await push();
+      }else if(remote.updatedAt > stamp(app.get())){
+        app.apply(rs); ready = true; status("ok", "☁︎ Salvato");
+        if(stamp(app.get()) > remote.updatedAt) push();
+      }else{
+        ready = true; await push();                                 // modifiche fatte offline su questo telefono
+      }
     }
+    try{ localStorage.setItem(linkKey, u.uid); }catch(e){}
   }catch(e){
     console.error(e); ready = true;
     status("warn", navigator.onLine ? "☁︎ Errore" : "☁︎ Offline");
