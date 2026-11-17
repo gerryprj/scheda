@@ -1,7 +1,9 @@
 /* Allenamento — service worker
-   App-shell caching so the app opens instantly and works fully offline.
-   Bump CACHE when you change any cached file to force an update. */
-var CACHE = "allenamento-v1";
+   - La pagina viene sempre scaricata fresca quando c'è rete (niente versioni vecchie).
+   - Senza rete si apre l'ultima copia salvata.
+   - Le richieste a Firebase (login, database) non passano MAI dalla cache.
+   Cambia CACHE solo se modifichi icone o manifest. */
+var CACHE = "allenamento-v2";
 var ASSETS = [
   "./",
   "./index.html",
@@ -14,7 +16,10 @@ var ASSETS = [
 
 self.addEventListener("install", function(e){
   e.waitUntil(
-    caches.open(CACHE).then(function(c){ return c.addAll(ASSETS); }).then(function(){ return self.skipWaiting(); })
+    caches.open(CACHE)
+      .then(function(c){ return c.addAll(ASSETS.map(function(u){ return new Request(u, {cache:"reload"}); })); })
+      .catch(function(){})
+      .then(function(){ return self.skipWaiting(); })
   );
 });
 
@@ -29,21 +34,47 @@ self.addEventListener("activate", function(e){
 self.addEventListener("fetch", function(e){
   var req = e.request;
   if(req.method !== "GET") return;
-  // Navigation requests: network-first, fall back to cached app shell (offline).
-  if(req.mode === "navigate"){
+  var url = new URL(req.url);
+  var sameOrigin = url.origin === self.location.origin;
+  var firebaseSdk = url.hostname === "www.gstatic.com" && url.pathname.indexOf("/firebasejs/") === 0;
+
+  // Tutto il resto (login Google, database Firestore, ecc.) va diretto in rete.
+  if(!sameOrigin && !firebaseSdk) return;
+
+  // Pagina: sempre dalla rete, ignorando la cache del browser; copia aggiornata per l'offline.
+  if(req.mode === "navigate" || (sameOrigin && /\/(index\.html)?$/.test(url.pathname))){
     e.respondWith(
-      fetch(req).catch(function(){ return caches.match("./index.html"); })
+      fetch(req, {cache:"no-store"}).then(function(res){
+        if(res && res.ok){ var copy=res.clone(); caches.open(CACHE).then(function(c){ c.put("./index.html", copy); }); }
+        return res;
+      }).catch(function(){
+        return caches.match("./index.html").then(function(hit){ return hit || caches.match("./"); });
+      })
     );
     return;
   }
-  // Other GETs: cache-first, then network (and cache a copy).
+
+  // Libreria Firebase (versione fissa nell'indirizzo): dalla cache, così funziona offline.
+  if(firebaseSdk){
+    e.respondWith(
+      caches.match(req).then(function(hit){
+        return hit || fetch(req).then(function(res){
+          if(res && res.ok){ var copy=res.clone(); caches.open(CACHE).then(function(c){ c.put(req, copy); }); }
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // Icone e manifest: copia in cache subito, aggiornata in background.
   e.respondWith(
     caches.match(req).then(function(hit){
-      return hit || fetch(req).then(function(res){
-        var copy = res.clone();
-        caches.open(CACHE).then(function(c){ c.put(req, copy); }).catch(function(){});
+      var net = fetch(req).then(function(res){
+        if(res && res.ok){ var copy=res.clone(); caches.open(CACHE).then(function(c){ c.put(req, copy); }); }
         return res;
       }).catch(function(){ return hit; });
+      return hit || net;
     })
   );
 });

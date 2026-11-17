@@ -1168,7 +1168,15 @@
 
   function registerSW(){
     if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
-      navigator.serviceWorker.register("sw.js").catch(function(){});
+      var hadController=!!navigator.serviceWorker.controller, reloaded=false;
+      // quando arriva una versione nuova del service worker, ricarica una volta la pagina
+      navigator.serviceWorker.addEventListener("controllerchange",function(){
+        if(hadController && !reloaded){ reloaded=true; location.reload(); }
+      });
+      navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(function(reg){
+        reg.update().catch(function(){});
+        document.addEventListener("visibilitychange",function(){ if(document.visibilityState==="visible") reg.update().catch(function(){}); });
+      }).catch(function(){});
     }
   }
 
