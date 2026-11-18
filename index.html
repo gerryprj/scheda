@@ -371,6 +371,7 @@
     <div class="menu-item" id="mResetSets">Azzera progressi di questa settimana</div>
     <div class="menu-item" id="mExport">Esporta backup (file JSON)</div>
     <div class="menu-item" id="mImport">Ripristina backup (file JSON)</div>
+    <div class="menu-item" id="mCloudHist" style="display:none;">Cronologia salvataggi</div>
     <div class="menu-item" id="mSignOut" style="display:none;"><span id="mSignOutTxt">Esci dall’account</span></div>
     <div class="menu-item close" id="mClose">Chiudi</div>
   </div>
@@ -434,6 +435,15 @@
     </div>
     <button class="btn btn-primary" id="addBtn" style="margin-top:14px;">Aggiungi</button>
     <button class="btn btn-ghost" id="addCancel" style="margin-top:8px;">Annulla</button>
+  </div>
+</div>
+
+<div class="modal" id="cloudHistSheet">
+  <div class="sheet">
+    <h2>Cronologia salvataggi</h2>
+    <div class="field-hint" style="margin-bottom:10px;">Una copia completa per ogni giorno in cui hai usato l’app. Le copie dei giorni passati non vengono più modificate.</div>
+    <div id="cloudHistList"></div>
+    <button class="btn btn-ghost" id="cloudHistClose" style="margin-top:14px;">Chiudi</button>
   </div>
 </div>
 
@@ -1114,7 +1124,7 @@
   /* ===================== modali e menu ===================== */
   function closeModal(id){ document.getElementById(id).classList.remove("open"); }
   function openRenameDay(){ document.getElementById("dayName").value=day().name; document.getElementById("daySheet").classList.add("open"); }
-  ["menuSheet","progSheet","editSheet","histSheet","addSheet","daySheet"].forEach(function(id){
+  ["menuSheet","progSheet","editSheet","histSheet","addSheet","daySheet","cloudHistSheet"].forEach(function(id){
     var m=document.getElementById(id); m.addEventListener("click",function(e){ if(e.target===m) closeModal(id); });
   });
 
@@ -1249,37 +1259,39 @@
   window.__app={
     ready:false,
     get:function(){ return state; },
-    // applica i dati arrivati dal cloud, tenendo giorno/settimana scelti su questo dispositivo
-    apply:function(remote){
+    // sostituisce lo stato con quello del cloud, tenendo giorno/settimana/scheda scelti su questo dispositivo
+    replace:function(remote){
       var keepUi=state.ui, keepActive=state.active;
-      var before=(remote&&remote.programs)? remote.programs.length : 0;
-      var stamp=remote.updatedAt;
-      state=normalize(remote);
+      state=normalize(clone(remote));
       Object.keys(keepUi||{}).forEach(function(k){ if(state.ui[k]) state.ui[k]=keepUi[k]; });
       if(state.programs.some(function(p){ return p.id===keepActive; })) state.active=keepActive;
-      if(state.programs.length>before) save();   // nuova scheda arrivata col file: la manda anche al cloud
-      else { state.updatedAt=stamp; saveLocal(); }
-      render();
+      saveLocal(); render();
     },
-    // unisce i dati del cloud con quelli del telefono: non si perde nessuna serie registrata
-    merge:function(remote){
-      var local=state;
-      remote.programs.forEach(function(rp){
-        var lp=local.programs.find(function(p){ return p.id===rp.id; });
-        if(lp){ local.programs[local.programs.indexOf(lp)]=rp; } else local.programs.push(rp);
-      });
-      Object.keys(remote.logs||{}).forEach(function(pid){
-        if(!local.logs[pid]) local.logs[pid]={};
-        var L=local.logs[pid], R=remote.logs[pid];
-        Object.keys(R).forEach(function(exId){
-          if(!L[exId]) L[exId]={};
-          Object.keys(R[exId]).forEach(function(w){
-            var r=R[exId][w], l=L[exId][w];
-            if(isEmptyEntry(l) || entrySize(r)>=entrySize(l)) L[exId][w]=r;
+    // unione senza perdite: schede di entrambi, per ogni settimana di ogni esercizio vince chi ha più serie registrate
+    mergeStates:function(local, remote){
+      var A=clone(local), B=clone(remote);
+      var aNewer=(A.updatedAt||0)>=(B.updatedAt||0), N=aNewer?A:B, O=aNewer?B:A;
+      var programs=(N.programs||[]).slice();
+      (O.programs||[]).forEach(function(p){ if(!programs.some(function(x){ return x.id===p.id; })) programs.push(p); });
+      var logs=N.logs||{}, other=O.logs||{};
+      Object.keys(other).forEach(function(pid){
+        if(!logs[pid]) logs[pid]={};
+        Object.keys(other[pid]).forEach(function(exId){
+          if(!logs[pid][exId]) logs[pid][exId]={};
+          Object.keys(other[pid][exId]).forEach(function(w){
+            var o=other[pid][exId][w], c=logs[pid][exId][w];
+            if(entrySize(o)>entrySize(c)) logs[pid][exId][w]=o;
           });
         });
       });
-      state=normalize(local); save(); render();
+      return normalize({v:1, programs:programs, logs:logs, ui:A.ui, active:A.active, updatedAt:Math.max(A.updatedAt||0,B.updatedAt||0)});
+    },
+    // ripristina una copia della cronologia (poi viene salvata come stato attuale)
+    restore:function(data){
+      var keepUi=state.ui;
+      state=normalize(clone(data));
+      Object.keys(keepUi||{}).forEach(function(k){ if(state.ui[k]) state.ui[k]=keepUi[k]; });
+      save(); render(); toast("Copia ripristinata ✓");
     },
     toast:toast,
     reset:function(){ state=normalize(null); try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
@@ -1301,6 +1313,38 @@
     return !Object.keys(L).some(function(pid){ return Object.keys(L[pid]).some(function(e){
       return Object.keys(L[pid][e]).some(function(w){ return !isEmptyEntry(L[pid][e][w]); }); }); });
   };
+  function countSets(d){
+    var n=0, L=(d&&d.logs)||{};
+    Object.keys(L).forEach(function(pid){ Object.keys(L[pid]).forEach(function(e){ Object.keys(L[pid][e]).forEach(function(w){
+      var v=L[pid][e][w]; if(Array.isArray(v)) n+=v.length; else if(v&&typeof v==="object") n+=(v.r||0);
+    }); }); });
+    return n;
+  }
+  document.getElementById("mCloudHist").onclick=function(){
+    closeModal("menuSheet");
+    var box=document.getElementById("cloudHistList");
+    box.innerHTML='<div class="empty" style="padding:24px 0;">Carico…</div>';
+    document.getElementById("cloudHistSheet").classList.add("open");
+    if(typeof window.__cloudHistory!=="function"){ box.innerHTML='<div class="empty" style="padding:24px 0;">Accedi per vedere la cronologia.</div>'; return; }
+    window.__cloudHistory().then(function(rows){
+      if(!rows.length){ box.innerHTML='<div class="empty" style="padding:24px 0;">Nessuna copia ancora.</div>'; return; }
+      box.innerHTML="";
+      rows.forEach(function(r){
+        var dt=new Date(r.day+"T12:00:00"), t=r.updatedAt? new Date(r.updatedAt) : null;
+        var el=document.createElement("div"); el.className="prog-row";
+        el.innerHTML='<div><div class="pn">'+esc(dt.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"}))+'</div>'
+          +'<div class="pd">'+countSets(r.data)+' serie registrate'+(t? ' · ultimo salvataggio '+t.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) : '')+'</div></div>'
+          +'<span class="ck" style="font-weight:500; font-size:14px;">Ripristina</span>';
+        el.onclick=function(){
+          if(!r.data){ toast("Copia vuota"); return; }
+          if(!confirm("Ripristinare la copia di "+dt.toLocaleDateString("it-IT")+"? I dati attuali verranno sostituiti (restano comunque nella copia di oggi).")) return;
+          closeModal("cloudHistSheet"); window.__app.restore(r.data);
+        };
+        box.appendChild(el);
+      });
+    }).catch(function(){ box.innerHTML='<div class="empty" style="padding:24px 0;">Cronologia non disponibile ora (serve la rete).</div>'; });
+  };
+  document.getElementById("cloudHistClose").onclick=function(){ closeModal("cloudHistSheet"); };
   document.getElementById("mSignOut").onclick=function(){
     closeModal("menuSheet");
     if(typeof window.__cloudSignOut==="function") window.__cloudSignOut();
@@ -1312,11 +1356,15 @@
 </script>
 
 <script type="module">
-/* ===================== sincronizzazione Firebase ===================== */
+/* ===================== sincronizzazione Firebase =====================
+   users/{uid}/data/state        stato attuale: schede, esercizi, pesi, serie (campi leggibili)
+   users/{uid}/history/{giorno}  una copia completa per ogni giorno di utilizzo
+   Ogni salvataggio è una transazione: se un altro dispositivo ha salvato nel frattempo,
+   i dati vengono uniti e mai sovrascritti alla cieca. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, query, orderBy, limit, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -1333,38 +1381,99 @@ const auth = getAuth(fb);
 const db = getFirestore(fb);
 const btn = document.getElementById("cloudBtn");
 const outItem = document.getElementById("mSignOut");
+const histItem = document.getElementById("mCloudHist");
+const LINK_KEY = "allenamento_cloud_uid", SEEN_KEY = "allenamento_cloud_seen";
 let user = null, ref = null, unsub = null, pushTimer = null, ready = false;
+let seen = 0;            // versione del cloud già incorporata su questo dispositivo
+let pushing = false, again = false, pending = false;
 
-function status(kind, text){ btn.className = "cloud " + kind; btn.textContent = text.replace("☁︎ ", ""); if(window.__app && window.__app.refresh) window.__app.refresh(); }
+function status(kind, text){ btn.className = "cloud " + kind; btn.textContent = text; if(window.__app && window.__app.refresh) window.__app.refresh(); }
 function waitApp(){
   return new Promise(res => { (function chk(){ if(window.__app && window.__app.ready) res(window.__app); else setTimeout(chk, 50); })(); });
 }
 function stamp(s){ return (s && s.updatedAt) || 0; }
+function loadSeen(uid){ try{ const o = JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); return o.uid === uid ? (o.t || 0) : 0; }catch(e){ return 0; } }
+function setSeen(t){ seen = t; try{ localStorage.setItem(SEEN_KEY, JSON.stringify({ uid: user.uid, t: t })); }catch(e){} }
+function localDay(){ const d = new Date(); const p = n => (n < 10 ? "0" : "") + n; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()); }
+// giorno e settimana scelti restano propri di ogni dispositivo
+function clean(s){ const c = JSON.parse(JSON.stringify(s)); delete c.ui; delete c.active; delete c.updatedAt; return c; }
+function readState(d){
+  if(!d) return null;
+  if(d.data) return Object.assign(JSON.parse(JSON.stringify(d.data)), { updatedAt: d.updatedAt || 0 });
+  if(d.json){ const s = JSON.parse(d.json); s.updatedAt = d.updatedAt || s.updatedAt || 0; return s; }   // formato vecchio
+  return null;
+}
+function failStatus(){ status("warn", navigator.onLine ? "Non salvato · riprovo" : "Offline"); }
 
 async function push(){
   if(!ref || !ready) return;
-  const s = window.__app.get();
-  if(!navigator.onLine) status("warn", "☁︎ Offline");
+  if(pushing){ again = true; return; }
+  pushing = true;
+  const app = window.__app;
   try{
-    // il salvataggio è una stringa JSON: niente limiti sulla forma dei dati
-    await setDoc(ref, { json: JSON.stringify(s), updatedAt: stamp(s) });
-    status("ok", "☁︎ Salvato");
-  }catch(e){ status("warn", "☁︎ Non salvato"); console.error(e); }
+    let written = null, merged = false;
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const remote = snap.exists() ? readState(snap.data()) : null;
+      let out = app.get(); merged = false;
+      if(remote && stamp(remote) > seen && stamp(remote) !== stamp(out)){
+        // un altro dispositivo ha salvato dopo l'ultima sincronizzazione: unisci, non sovrascrivere
+        out = app.mergeStates(out, remote); out.updatedAt = Math.max(Date.now(), stamp(remote) + 1); merged = true;
+      }
+      written = out;
+      tx.set(ref, { v: 2, updatedAt: stamp(out), data: clean(out) });
+    });
+    if(merged) app.replace(written);
+    setSeen(stamp(written));
+    pending = false;
+    status("ok", "Salvato");
+    writeHistory(written);
+  }catch(e){
+    pending = true; failStatus(); console.error(e);
+  }finally{
+    pushing = false;
+    if(again){ again = false; push(); }
+  }
 }
+
+// copia del giorno: aggiornata durante la giornata, poi non più toccata
+async function writeHistory(s){
+  if(!user) return;
+  const day = localDay();
+  const h = doc(db, "users", user.uid, "history", day);
+  const body = { day: day, updatedAt: stamp(s), data: clean(s) };
+  try{
+    const ex = await getDoc(h);
+    if(ex.exists()) await setDoc(h, body, { mergeFields: ["day", "updatedAt", "data"] });
+    else await setDoc(h, Object.assign({ created: serverTimestamp() }, body));
+  }catch(e){ console.error("cronologia", e); }
+}
+
 window.__cloudPush = function(){
   if(!user) return;
-  status(navigator.onLine ? "busy" : "warn", navigator.onLine ? "☁︎ Salvo…" : "☁︎ Offline");
+  status(navigator.onLine ? "busy" : "warn", navigator.onLine ? "Salvo…" : "Offline");
   clearTimeout(pushTimer); pushTimer = setTimeout(push, 1200);
+};
+window.__cloudHistory = async function(){
+  if(!user) return [];
+  const q = query(collection(db, "users", user.uid, "history"), orderBy("day", "desc"), limit(90));
+  const res = await getDocs(q), out = [];
+  res.forEach(d => { const v = d.data(); out.push({ day: v.day || d.id, updatedAt: v.updatedAt || 0, data: v.data || null }); });
+  return out;
 };
 window.__cloudSignOut = async function(){
   if(!confirm("Uscire? I tuoi dati restano nel tuo account e vengono tolti da questo telefono.")) return;
   clearTimeout(pushTimer);
-  if(ready) await push();
+  if(ready && stamp(window.__app.get()) > seen) await push();
+  if(pending && !confirm("Le ultime modifiche non sono ancora state salvate nel cloud. Uscire lo stesso?")) return;
   await signOut(auth);
   await window.__app.reset();
 };
-window.addEventListener("online", () => { if(user) push(); });
-window.addEventListener("offline", () => { if(user) status("warn", "☁︎ Offline"); });
+function retry(){ if(user && ready && (pending || stamp(window.__app.get()) > seen) && navigator.onLine) push(); }
+window.addEventListener("online", retry);
+window.addEventListener("offline", () => { if(user) status("warn", "Offline"); });
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") retry(); });
+setInterval(retry, 30000);
 
 btn.onclick = async function(){
   if(user){ window.__cloudPush(); return; }
@@ -1384,47 +1493,46 @@ onAuthStateChanged(auth, async (u) => {
   user = u; ready = false;
   if(unsub){ unsub(); unsub = null; }
   if(!u){
-    ref = null; outItem.style.display = "none";
-    try{ localStorage.removeItem("allenamento_cloud_uid"); }catch(e){}
-    status("off", "☁︎ Accedi");
+    ref = null; outItem.style.display = "none"; histItem.style.display = "none";
+    try{ localStorage.removeItem(LINK_KEY); localStorage.removeItem(SEEN_KEY); }catch(e){}
+    status("off", "Accedi");
     return;
   }
-  outItem.style.display = "";
+  outItem.style.display = ""; histItem.style.display = "";
   document.getElementById("mSignOutTxt").textContent = "Esci (" + (u.email || "account Google") + ")";
-  status("busy", "☁︎ Carico…");
+  status("busy", "Carico…");
   ref = doc(db, "users", u.uid, "data", "state");
+  seen = loadSeen(u.uid);
   const app = await waitApp();
   try{
     const snap = await getDoc(ref);
-    const remote = snap.exists() ? snap.data() : null;
-    const linkKey = "allenamento_cloud_uid";
-    let linked = null; try{ linked = localStorage.getItem(linkKey); }catch(e){}
+    const remote = snap.exists() ? readState(snap.data()) : null;
+    let linked = null; try{ linked = localStorage.getItem(LINK_KEY); }catch(e){}
+    const local = app.get();
     if(!remote){
-      ready = true; await push();                                   // cloud vuoto: carica i dati del telefono
+      ready = true; await push();                                   // cloud vuoto: carica i dati di questo dispositivo
+    }else if(linked !== u.uid){
+      // primo accesso da questo dispositivo
+      if(app.isEmpty(local)){ app.replace(remote); setSeen(stamp(remote)); ready = true; status("ok", "Salvato"); }
+      else { ready = true; await push(); }                          // seen = 0: la transazione unisce i due
+      app.toast("Dati scaricati dal cloud ✓");
+    }else if(stamp(local) > seen){
+      ready = true; await push();                                   // modifiche non ancora salvate: la transazione unisce se serve
     }else{
-      const rs = JSON.parse(remote.json);
-      if(linked !== u.uid){
-        // primo accesso da questo dispositivo: unisce, il cloud ha la precedenza
-        if(app.isEmpty(app.get())) app.apply(rs); else app.merge(rs);
-        app.toast("Dati scaricati dal cloud ✓");
-        ready = true; await push();
-      }else if(remote.updatedAt > stamp(app.get())){
-        app.apply(rs); ready = true; status("ok", "☁︎ Salvato");
-        if(stamp(app.get()) > remote.updatedAt) push();
-      }else{
-        ready = true; await push();                                 // modifiche fatte offline su questo telefono
-      }
+      if(stamp(remote) > stamp(local)) app.replace(remote);
+      setSeen(stamp(remote)); ready = true; status("ok", "Salvato");
     }
-    try{ localStorage.setItem(linkKey, u.uid); }catch(e){}
+    try{ localStorage.setItem(LINK_KEY, u.uid); }catch(e){}
   }catch(e){
-    console.error(e); ready = true;
-    status("warn", navigator.onLine ? "☁︎ Errore" : "☁︎ Offline");
+    console.error(e); ready = true; pending = true; failStatus();
   }
-  // aggiornamenti in tempo reale da altri dispositivi
+  // aggiornamenti in tempo reale dagli altri dispositivi
   unsub = onSnapshot(ref, (snap) => {
     if(!snap.exists() || snap.metadata.hasPendingWrites) return;
-    const d = snap.data();
-    if(d.updatedAt > stamp(window.__app.get())){ window.__app.apply(JSON.parse(d.json)); status("ok", "☁︎ Salvato"); }
+    const r = readState(snap.data()), t = stamp(r);
+    if(t <= seen) return;
+    if(stamp(window.__app.get()) > seen){ window.__cloudPush(); return; }   // anche qui ci sono modifiche: unisce al salvataggio
+    window.__app.replace(r); setSeen(t); status("ok", "Salvato");
   }, (e) => console.error(e));
 });
 </script>
