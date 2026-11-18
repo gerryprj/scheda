@@ -234,6 +234,8 @@
   .gate-code{margin:22px auto 0; max-width:320px; padding:12px 14px; border-radius:12px; background:var(--surface);
     font-size:13px; color:var(--muted); text-align:left; word-break:break-all;}
   .gate-code b{color:var(--text); font-weight:500; user-select:all; -webkit-user-select:all;}
+  .btn-danger-fill{background:#e5534b; color:#fff; box-shadow:none;}
+  #askSheet{z-index:75;}
   .add-ex{display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin:4px 0 8px; padding:16px;
     border:1px dashed var(--line2); border-radius:18px; background:none; color:var(--muted); font-size:15px; font-weight:500; cursor:pointer;}
   .add-ex:active{color:var(--accent); border-color:var(--accent);}
@@ -525,6 +527,15 @@
     <div class="field-hint">Dopo la creazione aggiungi gli esercizi giornata per giornata. Nomi e giornate si possono cambiare quando vuoi.</div>
     <button class="btn btn-primary" id="npCreate" style="margin-top:14px;">Crea scheda</button>
     <button class="btn btn-ghost" id="npCancel" style="margin-top:8px;">Annulla</button>
+  </div>
+</div>
+
+<div class="modal" id="askSheet">
+  <div class="sheet">
+    <h2 id="askTitle"></h2>
+    <div class="field-hint" id="askText" style="font-size:14px; margin-bottom:6px;"></div>
+    <button class="btn btn-primary" id="askOk" style="margin-top:14px;"></button>
+    <button class="btn btn-ghost" id="askNo" style="margin-top:8px;">Annulla</button>
   </div>
 </div>
 
@@ -1192,10 +1203,12 @@
     save(); render(); closeModal("editSheet"); toast("Modifiche salvate");
   }
   function deleteEx(){
-    var ex=findEx(editId); if(!ex) return;
-    if(!confirm("Eliminare "+ex.name+" da "+day().name+"? I pesi registrati restano nel file di esportazione solo se esporti prima.")) return;
-    day().exercises=day().exercises.filter(function(e){ return e.id!==editId; });
-    save(); render(); closeModal("editSheet"); toast("Esercizio eliminato");
+    var ex=findEx(editId); if(!ex) return; var id=editId;
+    ask("Eliminare "+ex.name+"?", "Verrà tolto da "+day().name+" insieme ai pesi registrati per questo esercizio.", "Elimina", true).then(function(ok){
+      if(!ok) return;
+      day().exercises=day().exercises.filter(function(e){ return e.id!==id; });
+      save(); render(); closeModal("editSheet"); toast("Esercizio eliminato");
+    });
   }
 
   /* ===================== schede ===================== */
@@ -1245,6 +1258,22 @@
     document.getElementById("addSheet").classList.add("open");
   }
 
+  // conferma dentro l'app (le finestre del browser possono essere bloccate)
+  var askResolve=null;
+  function ask(title, text, okLabel, danger){
+    if(askResolve) askResolve(false);
+    document.getElementById("askTitle").textContent=title;
+    document.getElementById("askText").textContent=text||"";
+    var ok=document.getElementById("askOk"); ok.textContent=okLabel||"Conferma";
+    ok.className="btn "+(danger?"btn-danger-fill":"btn-primary");
+    document.getElementById("askSheet").classList.add("open");
+    return new Promise(function(res){ askResolve=res; });
+  }
+  function askDone(v){ document.getElementById("askSheet").classList.remove("open"); var r=askResolve; askResolve=null; if(r) r(v); }
+  document.getElementById("askOk").onclick=function(){ askDone(true); };
+  document.getElementById("askNo").onclick=function(){ askDone(false); };
+  document.getElementById("askSheet").addEventListener("click",function(e){ if(e.target===this) askDone(false); });
+
   /* ===================== modali e menu ===================== */
   function closeModal(id){ document.getElementById(id).classList.remove("open"); }
   function openRenameDay(){
@@ -1267,14 +1296,15 @@
   function addProgram(p){
     if(!p || !p.id || !Array.isArray(p.days) || !p.days.length){ toast("File non valido: non contiene una scheda"); return false; }
     var i=state.programs.findIndex(function(x){ return x.id===p.id; });
-    if(i>=0){
-      if(!confirm("La scheda \""+p.name+"\" c’è già. Aggiornarla? I pesi registrati restano.")) return false;
-      state.programs[i]=p;
-    } else state.programs.push(p);
-    state.active=p.id;
-    state=normalize(state); state.ui[p.id]={day:0, week:calendarWeek(p)};
-    save(); render(); toast("Scheda aggiunta: "+p.name);
-    return true;
+    var go=i>=0? ask("Aggiornare \""+p.name+"\"?", "Questa scheda c’è già. Esercizi e schemi verranno sostituiti; i pesi registrati restano.", "Aggiorna") : Promise.resolve(true);
+    return go.then(function(ok){
+      if(!ok) return false;
+      if(i>=0) state.programs[i]=p; else state.programs.push(p);
+      state.active=p.id;
+      state=normalize(state); state.ui[p.id]={day:0, week:calendarWeek(p)};
+      save(); render(); toast("Scheda aggiunta: "+p.name);
+      return true;
+    });
   }
   document.getElementById("progName").onclick=function(){ if(hasProg()) openProgs(); };
   document.getElementById("progName").onkeydown=function(e){ if(e.key==="Enter" && hasProg()) openProgs(); };
@@ -1292,13 +1322,15 @@
     for(var i=0;i<npDays;i++) days.push({name:"Giorno "+(i+1), exercises:[]});
     var p={id:"s-"+Date.now().toString(36), name:nm.value.trim(), start:document.getElementById("npStart").value||nextMonday(), weeks:w, days:days};
     closeModal("newProgSheet");
-    if(addProgram(p)) toast("Scheda creata: ora aggiungi gli esercizi");
+    addProgram(p).then(function(ok){ if(ok) toast("Scheda creata: ora aggiungi gli esercizi"); });
   };
   document.getElementById("mResetSets").onclick=function(){
     closeModal("menuSheet");
-    if(!confirm("Azzerare i progressi di "+day().name+", settimana "+(wk()+1)+"?")) return;
-    day().exercises.forEach(function(e){ delete exLog(e.id)[wk()]; });
-    save(); render(); toast("Progressi della settimana azzerati");
+    ask("Azzerare la settimana?", "Verranno tolte tutte le serie segnate in "+day().name+", settimana "+(wk()+1)+".", "Azzera", true).then(function(ok){
+      if(!ok) return;
+      day().exercises.forEach(function(e){ delete exLog(e.id)[wk()]; });
+      save(); render(); toast("Progressi della settimana azzerati");
+    });
   };
   function pad(n){ return n<10?"0"+n:""+n; }
   document.getElementById("mExport").onclick=function(){
@@ -1325,8 +1357,10 @@
         var inc=obj&&obj.data?obj.data:obj;
         if(!inc || !Array.isArray(inc.programs)){ toast("File non valido: non contiene schede"); return; }
         if(mode==="program"){ toast("Questo è un backup completo: usa Ripristina backup"); return; }
-        if(!confirm("Importare questi dati? Sostituiranno quelli di questo dispositivo.")) return;
-        state=normalize(inc); save(); render(); toast("Dati importati ✓");
+        ask("Ripristinare il backup?", "Schede e pesi attuali verranno sostituiti con quelli del file.", "Ripristina", true).then(function(ok){
+          if(!ok) return;
+          state=normalize(inc); save(); render(); toast("Dati importati ✓");
+        });
       }catch(err){ toast("File non leggibile"); }
     };
     reader.readAsText(f);
@@ -1391,10 +1425,13 @@
   };
   document.getElementById("dayDel").onclick=function(){
     var p=prog(); if(p.days.length<=1) return;
-    var d=day(), n=d.exercises.length;
-    if(!confirm("Eliminare \""+d.name+"\""+(n? " con i suoi "+n+" esercizi" : "")+"? I pesi registrati di questi esercizi non saranno più visibili.")) return;
-    p.days.splice(ui().day,1); ui().day=Math.max(0,ui().day-1);
-    save(); render(); closeModal("daySheet"); toast("Giornata eliminata");
+    var d=day(), n=d.exercises.length, idx=ui().day;
+    closeModal("daySheet");
+    ask("Eliminare \""+d.name+"\"?", n? "Verranno tolti anche i suoi "+n+" esercizi e i pesi registrati." : "La giornata è vuota.", "Elimina", true).then(function(ok){
+      if(!ok) return;
+      p.days.splice(idx,1); ui().day=Math.max(0,idx-1);
+      save(); render(); toast("Giornata eliminata");
+    });
   };
   function moveEx(dir){
     var exs=day().exercises, i=exs.findIndex(function(e){ return e.id===editId; }), j=i+dir;
@@ -1479,6 +1516,7 @@
       if(_saveTimer) clearTimeout(_saveTimer); var done=_db? idbPut(state).catch(function(){}) : Promise.resolve(); render(); return done; },
     refresh:function(){ if(state && (!hasProg() || gateInfo)) render(); },
     gate:function(info){ gateInfo=info||null; render(); },
+    ask:ask,
     // elenco richieste (solo per il proprietario; null = non sei il proprietario)
     setAccess:function(rows){
       accessRows=rows;
@@ -1532,10 +1570,12 @@
           +'<div class="pd">'+r.sets+' serie registrate'+(r.schede.length? ' · '+esc(r.schede.join(", ")) : '')+'</div></div>'
           +'<span class="ck" style="font-weight:500; font-size:14px;">Ripristina</span>';
         el.onclick=function(){
-          if(!confirm("Ripristinare la copia della "+label.toLowerCase()+"? I dati attuali verranno sostituiti.")) return;
-          closeModal("cloudHistSheet");
-          window.__cloudHistoryData(r.week).then(function(d){ if(d) window.__app.restore(d); else toast("Copia non trovata"); })
-            .catch(function(){ toast("Serve la rete per ripristinare"); });
+          ask("Ripristinare questa copia?", label+": schede e pesi attuali verranno sostituiti.", "Ripristina", true).then(function(ok){
+            if(!ok) return;
+            closeModal("cloudHistSheet");
+            window.__cloudHistoryData(r.week).then(function(d){ if(d) window.__app.restore(d); else toast("Copia non trovata"); })
+              .catch(function(){ toast("Serve la rete per ripristinare"); });
+          });
         };
         box.appendChild(el);
       });
@@ -1561,10 +1601,15 @@
         acts.forEach(function(a){
           var b=document.createElement("button"); b.className="btn "+a[2]; b.textContent=a[1];
           b.onclick=function(){
-            if(a[0]==="denied" && g[0]==="approved" && !confirm("Togliere l’accesso a "+(r.email||r.name)+"? I suoi dati restano salvati ma non potrà più usarli.")) return;
-            b.disabled=true;
-            window.__accessSet(r.uid,a[0]).then(function(){ toast(a[0]==="approved"?"Accesso concesso":"Accesso negato"); })
-              .catch(function(){ b.disabled=false; toast("Operazione non riuscita"); });
+            var go=(a[0]==="denied" && g[0]==="approved")
+              ? ask("Togliere l’accesso?", (r.email||r.name)+" non potrà più usare l’app. I suoi dati restano salvati.", "Revoca", true)
+              : Promise.resolve(true);
+            go.then(function(ok){
+              if(!ok) return;
+              b.disabled=true;
+              window.__accessSet(r.uid,a[0]).then(function(){ toast(a[0]==="approved"?"Accesso concesso":"Accesso negato"); })
+                .catch(function(){ b.disabled=false; toast("Operazione non riuscita"); });
+            });
           };
           el.appendChild(b);
         });
@@ -1741,9 +1786,9 @@ window.__cloudHistoryData = async function(week){
   return s.exists() ? s.data().data : null;
 };
 window.__cloudSignOut = async function(){
-  if(!confirm("Uscire? I tuoi dati restano nel tuo account e vengono tolti da questo telefono.")) return;
+  if(!(await window.__app.ask("Uscire dall’account?", "I tuoi dati restano nel tuo account e vengono tolti da questo telefono.", "Esci"))) return;
   if(ready) await push();
-  if(pending && !confirm("Le ultime modifiche non sono ancora state salvate nel cloud. Uscire lo stesso?")) return;
+  if(pending && !(await window.__app.ask("Modifiche non salvate", "Le ultime modifiche non sono ancora arrivate nel cloud. Uscire lo stesso?", "Esci lo stesso", true))) return;
   await signOut(auth);
   await window.__app.reset();
 };
