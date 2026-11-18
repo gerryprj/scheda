@@ -56,13 +56,13 @@
   .icon-btn svg{width:20px; height:20px;}
 
   /* giorni: controllo segmentato */
-  .tabs{display:flex; padding:3px; background:var(--surface); border-radius:var(--r-sm); margin-bottom:18px;}
+  .tabs{display:flex; padding:3px; background:var(--surface); border-radius:var(--r-sm); margin-bottom:22px;}
   .tab{flex:1; background:none; border:none; color:var(--muted); padding:9px 8px; border-radius:9px;
     font-size:15px; font-weight:500; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .tab.active{background:var(--grad); color:var(--accent-ink); font-weight:700; box-shadow:0 4px 14px -4px rgba(255,125,46,.55);}
 
   /* settimane */
-  .week-bar{display:flex; align-items:center; gap:12px; margin-bottom:22px;}
+  .week-bar{display:flex; align-items:center; gap:12px; margin-bottom:16px;}
   .week-bar .lbl{font-size:13px; color:var(--muted); flex:0 0 auto;}
   .week-chips{display:flex; gap:4px; overflow-x:auto; flex:1; padding:2px 0 7px; margin-bottom:-7px;}
   .week-chip{position:relative; flex:0 0 auto; width:36px; height:36px; border-radius:50%; border:none;
@@ -329,12 +329,12 @@
   </div>
 </header>
 
-<div class="tabs" id="tabs"></div>
-
 <div class="week-bar">
   <span class="lbl">Settimana</span>
   <div class="week-chips" id="weekChips"></div>
 </div>
+
+<div class="tabs" id="tabs"></div>
 <div class="progress">
   <p class="sub" id="sub"></p>
   <div class="bar"><i id="barFill"></i></div>
