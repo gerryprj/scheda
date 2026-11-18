@@ -441,7 +441,7 @@
 <div class="modal" id="cloudHistSheet">
   <div class="sheet">
     <h2>Cronologia salvataggi</h2>
-    <div class="field-hint" style="margin-bottom:10px;">Una copia completa per ogni giorno in cui hai usato l’app. Le copie dei giorni passati non vengono più modificate.</div>
+    <div class="field-hint" style="margin-bottom:10px;">Una copia completa per ogni settimana in cui usi l’app, creata alla prima apertura della settimana. Le copie non vengono mai modificate.</div>
     <div id="cloudHistList"></div>
     <button class="btn btn-ghost" id="cloudHistClose" style="margin-top:14px;">Chiudi</button>
   </div>
@@ -1267,6 +1267,14 @@
       if(state.programs.some(function(p){ return p.id===keepActive; })) state.active=keepActive;
       saveLocal(); render();
     },
+    // aggiorna una sola scheda (esercizi + pesi) arrivata dal cloud
+    replacePart:function(part){
+      var p=clone(part.program), i=state.programs.findIndex(function(x){ return x.id===p.id; });
+      if(i>=0) state.programs[i]=p; else state.programs.push(p);
+      state.logs[p.id]=clone(part.logs||{});
+      state=normalize(state); saveLocal(); render();
+    },
+    replaceAll:function(s){ this.replace(s); },
     // unione senza perdite: schede di entrambi, per ogni settimana di ogni esercizio vince chi ha più serie registrate
     mergeStates:function(local, remote){
       var A=clone(local), B=clone(remote);
@@ -1313,13 +1321,6 @@
     return !Object.keys(L).some(function(pid){ return Object.keys(L[pid]).some(function(e){
       return Object.keys(L[pid][e]).some(function(w){ return !isEmptyEntry(L[pid][e][w]); }); }); });
   };
-  function countSets(d){
-    var n=0, L=(d&&d.logs)||{};
-    Object.keys(L).forEach(function(pid){ Object.keys(L[pid]).forEach(function(e){ Object.keys(L[pid][e]).forEach(function(w){
-      var v=L[pid][e][w]; if(Array.isArray(v)) n+=v.length; else if(v&&typeof v==="object") n+=(v.r||0);
-    }); }); });
-    return n;
-  }
   document.getElementById("mCloudHist").onclick=function(){
     closeModal("menuSheet");
     var box=document.getElementById("cloudHistList");
@@ -1330,15 +1331,22 @@
       if(!rows.length){ box.innerHTML='<div class="empty" style="padding:24px 0;">Nessuna copia ancora.</div>'; return; }
       box.innerHTML="";
       rows.forEach(function(r){
-        var dt=new Date(r.day+"T12:00:00"), t=r.updatedAt? new Date(r.updatedAt) : null;
+        var m=/^(\d{4})-W(\d{2})$/.exec(r.week), label=r.week;
+        if(m){
+          var y=+m[1], w=+m[2], jan4=new Date(y,0,4), mon=new Date(jan4); mon.setDate(jan4.getDate()-((jan4.getDay()+6)%7)+(w-1)*7);
+          var sun=new Date(mon); sun.setDate(mon.getDate()+6);
+          var f=function(d){ return d.toLocaleDateString("it-IT",{day:"numeric",month:"short"}); };
+          label="Settimana "+f(mon)+" – "+f(sun);
+        }
         var el=document.createElement("div"); el.className="prog-row";
-        el.innerHTML='<div><div class="pn">'+esc(dt.toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"}))+'</div>'
-          +'<div class="pd">'+countSets(r.data)+' serie registrate'+(t? ' · ultimo salvataggio '+t.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}) : '')+'</div></div>'
+        el.innerHTML='<div><div class="pn">'+esc(label)+'</div>'
+          +'<div class="pd">'+r.sets+' serie registrate'+(r.schede.length? ' · '+esc(r.schede.join(", ")) : '')+'</div></div>'
           +'<span class="ck" style="font-weight:500; font-size:14px;">Ripristina</span>';
         el.onclick=function(){
-          if(!r.data){ toast("Copia vuota"); return; }
-          if(!confirm("Ripristinare la copia di "+dt.toLocaleDateString("it-IT")+"? I dati attuali verranno sostituiti (restano comunque nella copia di oggi).")) return;
-          closeModal("cloudHistSheet"); window.__app.restore(r.data);
+          if(!confirm("Ripristinare la copia della "+label.toLowerCase()+"? I dati attuali verranno sostituiti.")) return;
+          closeModal("cloudHistSheet");
+          window.__cloudHistoryData(r.week).then(function(d){ if(d) window.__app.restore(d); else toast("Copia non trovata"); })
+            .catch(function(){ toast("Serve la rete per ripristinare"); });
         };
         box.appendChild(el);
       });
@@ -1357,14 +1365,15 @@
 
 <script type="module">
 /* ===================== sincronizzazione Firebase =====================
-   users/{uid}/data/state        stato attuale: schede, esercizi, pesi, serie (campi leggibili)
-   users/{uid}/history/{giorno}  una copia completa per ogni giorno di utilizzo
-   Ogni salvataggio è una transazione: se un altro dispositivo ha salvato nel frattempo,
-   i dati vengono uniti e mai sovrascritti alla cieca. */
+   users/{uid}/programs/{idScheda}       una scheda: esercizi, schemi, pesi e serie (campi leggibili)
+   users/{uid}/history/{settimana}       riepilogo settimanale leggero (creato una volta, mai modificato)
+   users/{uid}/history/{settimana}/copy/full   copia completa di quella settimana
+   Si scrive solo la scheda cambiata; ogni scrittura è una transazione che unisce i dati
+   se un altro dispositivo ha salvato nel frattempo. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, query, orderBy, limit, serverTimestamp }
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, query, orderBy, limit, serverTimestamp, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -1382,52 +1391,74 @@ const db = getFirestore(fb);
 const btn = document.getElementById("cloudBtn");
 const outItem = document.getElementById("mSignOut");
 const histItem = document.getElementById("mCloudHist");
-const LINK_KEY = "allenamento_cloud_uid", SEEN_KEY = "allenamento_cloud_seen";
-let user = null, ref = null, unsub = null, pushTimer = null, ready = false;
-let seen = 0;            // versione del cloud già incorporata su questo dispositivo
+const SYNC_KEY = "allenamento_sync_v3", WEEK_KEY = "allenamento_hist_week";
+const DEBOUNCE = 4000;
+let user = null, unsub = null, pushTimer = null, ready = false;
+let sync = { uid: null, h: {}, t: {}, migrated: false };   // per scheda: impronta e versione già sincronizzate
 let pushing = false, again = false, pending = false;
 
 function status(kind, text){ btn.className = "cloud " + kind; btn.textContent = text; if(window.__app && window.__app.refresh) window.__app.refresh(); }
-function waitApp(){
-  return new Promise(res => { (function chk(){ if(window.__app && window.__app.ready) res(window.__app); else setTimeout(chk, 50); })(); });
-}
-function stamp(s){ return (s && s.updatedAt) || 0; }
-function loadSeen(uid){ try{ const o = JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); return o.uid === uid ? (o.t || 0) : 0; }catch(e){ return 0; } }
-function setSeen(t){ seen = t; try{ localStorage.setItem(SEEN_KEY, JSON.stringify({ uid: user.uid, t: t })); }catch(e){} }
-function localDay(){ const d = new Date(); const p = n => (n < 10 ? "0" : "") + n; return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()); }
-// giorno e settimana scelti restano propri di ogni dispositivo
-function clean(s){ const c = JSON.parse(JSON.stringify(s)); delete c.ui; delete c.active; delete c.updatedAt; return c; }
-function readState(d){
-  if(!d) return null;
-  if(d.data) return Object.assign(JSON.parse(JSON.stringify(d.data)), { updatedAt: d.updatedAt || 0 });
-  if(d.json){ const s = JSON.parse(d.json); s.updatedAt = d.updatedAt || s.updatedAt || 0; return s; }   // formato vecchio
-  return null;
-}
+function waitApp(){ return new Promise(res => { (function chk(){ if(window.__app && window.__app.ready) res(window.__app); else setTimeout(chk, 50); })(); }); }
 function failStatus(){ status("warn", navigator.onLine ? "Non salvato · riprovo" : "Offline"); }
+function loadSync(uid){ try{ const o = JSON.parse(localStorage.getItem(SYNC_KEY) || "null"); if(o && o.uid === uid) return o; }catch(e){} return { uid: uid, h: {}, t: {}, migrated: false }; }
+function saveSync(){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }catch(e){} }
+const progRef = pid => doc(db, "users", user.uid, "programs", pid);
 
+// ---- dati compatti e impronta stabile ----
+function emptyEntry(v){ return v == null || v === false || v === 0 || (Array.isArray(v) && !v.length) || (typeof v === "object" && !Array.isArray(v) && !(v.r) && !((v.kg || []).some(x => x != null))); }
+function compactLogs(L){
+  const out = {};
+  Object.keys(L || {}).forEach(ex => { const w = {}; Object.keys(L[ex] || {}).forEach(k => { if(!emptyEntry(L[ex][k])) w[k] = L[ex][k]; }); if(Object.keys(w).length) out[ex] = w; });
+  return out;
+}
+function canon(v){
+  if(Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if(v && typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  return JSON.stringify(v === undefined ? null : v);
+}
+function hash(s){ let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36) + s.length.toString(36); }
+function partOf(state, pid){
+  const p = state.programs.find(x => x.id === pid);
+  return p ? { program: JSON.parse(JSON.stringify(p)), logs: compactLogs(state.logs[pid]) } : null;
+}
+const partHash = part => hash(canon({ program: part.program, logs: compactLogs(part.logs) }));
+function asState(part, t){ return { programs: [part.program], logs: { [part.program.id]: part.logs || {} }, updatedAt: t || 0 }; }
+function mergeParts(local, remote, localT, remoteT){
+  const m = window.__app.mergeStates(asState(local, localT), asState(remote, remoteT));
+  const p = m.programs.find(x => x.id === local.program.id) || remote.program;
+  return { program: p, logs: compactLogs(m.logs[p.id]) };
+}
+
+// ---- salvataggio: solo le schede cambiate ----
 async function push(){
-  if(!ref || !ready) return;
+  if(!user || !ready) return;
   if(pushing){ again = true; return; }
-  pushing = true;
+  pushing = true; clearTimeout(pushTimer); pushTimer = null;
   const app = window.__app;
   try{
-    let written = null, merged = false;
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(ref);
-      const remote = snap.exists() ? readState(snap.data()) : null;
-      let out = app.get(); merged = false;
-      if(remote && stamp(remote) > seen && stamp(remote) !== stamp(out)){
-        // un altro dispositivo ha salvato dopo l'ultima sincronizzazione: unisci, non sovrascrivere
-        out = app.mergeStates(out, remote); out.updatedAt = Math.max(Date.now(), stamp(remote) + 1); merged = true;
-      }
-      written = out;
-      tx.set(ref, { v: 2, updatedAt: stamp(out), data: clean(out) });
-    });
-    if(merged) app.replace(written);
-    setSeen(stamp(written));
-    pending = false;
-    status("ok", "Salvato");
-    writeHistory(written);
+    const st = app.get();
+    for(const p of st.programs){
+      const pid = p.id;
+      const mine = partOf(app.get(), pid); if(!mine) continue;
+      const h = partHash(mine);
+      if(h === sync.h[pid]) continue;                 // non è cambiata: nessun traffico
+      let out = mine, t = 0, merged = false;
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(progRef(pid));
+        const r = snap.exists() ? snap.data() : null;
+        out = mine; merged = false;
+        if(r && r.updatedAt > (sync.t[pid] || 0) && r.program){
+          const rp = { program: r.program, logs: r.logs || {} };
+          if(partHash(rp) !== h){ out = mergeParts(mine, rp, app.get().updatedAt || 0, r.updatedAt); merged = true; }
+        }
+        t = Math.max(Date.now(), r ? (r.updatedAt || 0) + 1 : 0);
+        tx.set(progRef(pid), { v: 3, updatedAt: t, name: out.program.name || pid, program: out.program, logs: out.logs });
+      });
+      if(merged) app.replacePart(out);
+      sync.h[pid] = partHash(out); sync.t[pid] = t; saveSync();
+    }
+    pending = false; status("ok", "Salvato");
+    weeklyCopy();
   }catch(e){
     pending = true; failStatus(); console.error(e);
   }finally{
@@ -1436,47 +1467,75 @@ async function push(){
   }
 }
 
-// copia del giorno: aggiornata durante la giornata, poi non più toccata
-async function writeHistory(s){
+// ---- copia settimanale: creata una sola volta a settimana ----
+function isoWeek(d){
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y = t.getUTCFullYear(), w = Math.ceil(((t - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+  return y + "-W" + (w < 10 ? "0" : "") + w;
+}
+function countSets(s){
+  let n = 0; const L = (s && s.logs) || {};
+  Object.keys(L).forEach(pid => Object.keys(L[pid]).forEach(e => Object.keys(L[pid][e]).forEach(w => {
+    const v = L[pid][e][w]; if(Array.isArray(v)) n += v.length; else if(v && typeof v === "object") n += (v.r || 0);
+  })));
+  return n;
+}
+async function weeklyCopy(){
   if(!user) return;
-  const day = localDay();
-  const h = doc(db, "users", user.uid, "history", day);
-  const body = { day: day, updatedAt: stamp(s), data: clean(s) };
+  const week = isoWeek(new Date()), flag = user.uid + "|" + week;
+  try{ if(localStorage.getItem(WEEK_KEY) === flag) return; }catch(e){}
   try{
-    const ex = await getDoc(h);
-    if(ex.exists()) await setDoc(h, body, { mergeFields: ["day", "updatedAt", "data"] });
-    else await setDoc(h, Object.assign({ created: serverTimestamp() }, body));
-  }catch(e){ console.error("cronologia", e); }
+    const h = doc(db, "users", user.uid, "history", week);
+    if(!(await getDoc(h)).exists()){
+      const s = window.__app.get();
+      const data = { programs: JSON.parse(JSON.stringify(s.programs)), logs: {} };
+      s.programs.forEach(p => { data.logs[p.id] = compactLogs(s.logs[p.id]); });
+      const b = writeBatch(db);
+      b.set(h, { week: week, created: serverTimestamp(), updatedAt: Date.now(), sets: countSets(data), schede: s.programs.map(p => p.name) });
+      b.set(doc(db, "users", user.uid, "history", week, "copy", "full"), { created: serverTimestamp(), data: data });
+      await b.commit();
+    }
+    try{ localStorage.setItem(WEEK_KEY, flag); }catch(e){}
+  }catch(e){ console.error("copia settimanale", e); }
 }
 
 window.__cloudPush = function(){
   if(!user) return;
   status(navigator.onLine ? "busy" : "warn", navigator.onLine ? "Salvo…" : "Offline");
-  clearTimeout(pushTimer); pushTimer = setTimeout(push, 1200);
+  clearTimeout(pushTimer); pushTimer = setTimeout(push, DEBOUNCE);
 };
 window.__cloudHistory = async function(){
   if(!user) return [];
-  const q = query(collection(db, "users", user.uid, "history"), orderBy("day", "desc"), limit(90));
-  const res = await getDocs(q), out = [];
-  res.forEach(d => { const v = d.data(); out.push({ day: v.day || d.id, updatedAt: v.updatedAt || 0, data: v.data || null }); });
+  const res = await getDocs(query(collection(db, "users", user.uid, "history"), orderBy("week", "desc"), limit(26)));
+  const out = [];
+  res.forEach(d => { const v = d.data(); if(v.week) out.push({ week: v.week, updatedAt: v.updatedAt || 0, sets: v.sets || 0, schede: v.schede || [] }); });
   return out;
+};
+window.__cloudHistoryData = async function(week){
+  const s = await getDoc(doc(db, "users", user.uid, "history", week, "copy", "full"));
+  return s.exists() ? s.data().data : null;
 };
 window.__cloudSignOut = async function(){
   if(!confirm("Uscire? I tuoi dati restano nel tuo account e vengono tolti da questo telefono.")) return;
-  clearTimeout(pushTimer);
-  if(ready && stamp(window.__app.get()) > seen) await push();
+  if(ready) await push();
   if(pending && !confirm("Le ultime modifiche non sono ancora state salvate nel cloud. Uscire lo stesso?")) return;
   await signOut(auth);
   await window.__app.reset();
 };
-function retry(){ if(user && ready && (pending || stamp(window.__app.get()) > seen) && navigator.onLine) push(); }
+function dirty(){ const s = window.__app.get(); return s.programs.some(p => { const x = partOf(s, p.id); return x && partHash(x) !== sync.h[p.id]; }); }
+function retry(){ if(user && ready && navigator.onLine && (pending || pushTimer)) push(); }
 window.addEventListener("online", retry);
 window.addEventListener("offline", () => { if(user) status("warn", "Offline"); });
-document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") retry(); });
-setInterval(retry, 30000);
+// quando l'app va in secondo piano salva subito ciò che è in attesa
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "hidden"){ if(pushTimer) push(); }
+  else if(user && ready && (pending || dirty())) push();
+});
+setInterval(() => { if(pending) retry(); }, 30000);
 
 btn.onclick = async function(){
-  if(user){ window.__cloudPush(); return; }
+  if(user){ push(); return; }
   const provider = new GoogleAuthProvider();
   try{ await signInWithPopup(auth, provider); }
   catch(e){
@@ -1489,51 +1548,60 @@ btn.onclick = async function(){
 };
 getRedirectResult(auth).catch(e => console.error(e));
 
+// dati salvati con le versioni precedenti (un unico documento): letti una volta e divisi per scheda
+async function migrateOld(app){
+  try{
+    const s = await getDoc(doc(db, "users", user.uid, "data", "state"));
+    if(s.exists()){
+      const d = s.data();
+      const old = d.data ? Object.assign(JSON.parse(JSON.stringify(d.data)), { updatedAt: d.updatedAt || 0 })
+                : d.json ? Object.assign(JSON.parse(d.json), { updatedAt: d.updatedAt || 0 }) : null;
+      if(old && old.programs){
+        const local = app.get();
+        app.replaceAll(app.isEmpty(local) ? old : app.mergeStates(local, old));
+      }
+    }
+    sync.migrated = true; saveSync();
+  }catch(e){ console.error("migrazione", e); }
+}
+
 onAuthStateChanged(auth, async (u) => {
   user = u; ready = false;
   if(unsub){ unsub(); unsub = null; }
   if(!u){
-    ref = null; outItem.style.display = "none"; histItem.style.display = "none";
-    try{ localStorage.removeItem(LINK_KEY); localStorage.removeItem(SEEN_KEY); }catch(e){}
+    outItem.style.display = "none"; histItem.style.display = "none";
+    try{ localStorage.removeItem(SYNC_KEY); }catch(e){}
     status("off", "Accedi");
     return;
   }
   outItem.style.display = ""; histItem.style.display = "";
   document.getElementById("mSignOutTxt").textContent = "Esci (" + (u.email || "account Google") + ")";
   status("busy", "Carico…");
-  ref = doc(db, "users", u.uid, "data", "state");
-  seen = loadSeen(u.uid);
+  sync = loadSync(u.uid);
   const app = await waitApp();
-  try{
-    const snap = await getDoc(ref);
-    const remote = snap.exists() ? readState(snap.data()) : null;
-    let linked = null; try{ linked = localStorage.getItem(LINK_KEY); }catch(e){}
-    const local = app.get();
-    if(!remote){
-      ready = true; await push();                                   // cloud vuoto: carica i dati di questo dispositivo
-    }else if(linked !== u.uid){
-      // primo accesso da questo dispositivo
-      if(app.isEmpty(local)){ app.replace(remote); setSeen(stamp(remote)); ready = true; status("ok", "Salvato"); }
-      else { ready = true; await push(); }                          // seen = 0: la transazione unisce i due
-      app.toast("Dati scaricati dal cloud ✓");
-    }else if(stamp(local) > seen){
-      ready = true; await push();                                   // modifiche non ancora salvate: la transazione unisce se serve
-    }else{
-      if(stamp(remote) > stamp(local)) app.replace(remote);
-      setSeen(stamp(remote)); ready = true; status("ok", "Salvato");
+  let first = true;
+  // un solo ascolto per tutte le schede: alla prima lettura arrivano tutte, poi solo quelle cambiate
+  unsub = onSnapshot(collection(db, "users", u.uid, "programs"), async (snap) => {
+    let needPush = false;
+    snap.forEach(d => {
+      if(d.metadata && d.metadata.hasPendingWrites) return;
+      const r = d.data(), pid = d.id;
+      if(!r || !r.program || (r.updatedAt || 0) <= (sync.t[pid] || 0)) return;
+      const rp = { program: r.program, logs: r.logs || {} };
+      const mine = partOf(app.get(), pid);
+      if(mine && partHash(mine) !== sync.h[pid] && partHash(mine) !== partHash(rp)){ needPush = true; return; }   // modifiche anche qui: si uniscono al salvataggio
+      app.replacePart(rp);
+      sync.h[pid] = partHash(rp); sync.t[pid] = r.updatedAt; saveSync();
+    });
+    if(first){
+      first = false;
+      if(snap.empty && !sync.migrated) await migrateOld(app);
+      sync.migrated = true; saveSync();
+      ready = true;
+      if(dirty()) needPush = true; else status("ok", "Salvato");
     }
-    try{ localStorage.setItem(LINK_KEY, u.uid); }catch(e){}
-  }catch(e){
-    console.error(e); ready = true; pending = true; failStatus();
-  }
-  // aggiornamenti in tempo reale dagli altri dispositivi
-  unsub = onSnapshot(ref, (snap) => {
-    if(!snap.exists() || snap.metadata.hasPendingWrites) return;
-    const r = readState(snap.data()), t = stamp(r);
-    if(t <= seen) return;
-    if(stamp(window.__app.get()) > seen){ window.__cloudPush(); return; }   // anche qui ci sono modifiche: unisce al salvataggio
-    window.__app.replace(r); setSeen(t); status("ok", "Salvato");
-  }, (e) => console.error(e));
+    if(needPush) push();
+  }, (e) => { console.error(e); ready = true; pending = true; failStatus(); });
 });
 </script>
 </body>
