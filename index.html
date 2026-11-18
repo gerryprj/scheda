@@ -219,6 +219,25 @@
   body.no-prog .cloud.off{display:none;}
   .empty-state h2{font-size:22px; font-weight:600; margin:0 0 8px; letter-spacing:-.02em;}
   .empty-state p{color:var(--muted); font-size:15px; margin:0 auto 26px; max-width:300px;}
+  .badge{display:inline-block; min-width:20px; padding:1px 7px; margin-left:6px; border-radius:10px; background:var(--grad);
+    color:var(--accent-ink); font-size:12px; font-weight:700; text-align:center;}
+  .badge:empty{display:none;}
+  #menuBtn{position:relative;}
+  #menuBtn.has-req::after{content:""; position:absolute; top:6px; right:6px; width:9px; height:9px; border-radius:50%;
+    background:var(--accent); box-shadow:0 0 0 2px var(--bg);}
+  .acc-group{font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:18px 0 4px;}
+  .acc-row{display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:.5px solid var(--line);}
+  .acc-row .who{flex:1; min-width:0;}
+  .acc-row .who b{display:block; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .acc-row .who span{font-size:13px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block;}
+  .acc-row .btn{width:auto; padding:9px 14px; font-size:14px;}
+  .gate-code{margin:22px auto 0; max-width:320px; padding:12px 14px; border-radius:12px; background:var(--surface);
+    font-size:13px; color:var(--muted); text-align:left; word-break:break-all;}
+  .gate-code b{color:var(--text); font-weight:500; user-select:all; -webkit-user-select:all;}
+  .add-ex{display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin:4px 0 8px; padding:16px;
+    border:1px dashed var(--line2); border-radius:18px; background:none; color:var(--muted); font-size:15px; font-weight:500; cursor:pointer;}
+  .add-ex:active{color:var(--accent); border-color:var(--accent);}
+  .empty-state .btn + .btn{margin-top:10px;}
   .empty{text-align:center; color:var(--muted); padding:40px 10px; font-size:15px;}
 
   /* timer */
@@ -365,8 +384,10 @@
 
 <div class="modal" id="menuSheet">
   <div class="sheet">
+    <div class="menu-item" id="mAccess" style="display:none;">Richieste di accesso <span class="badge" id="accBadge"></span></div>
     <div class="menu-item" id="mProgs">Cambia scheda</div>
-    <div class="menu-item" id="mAddProg">Aggiungi scheda da file</div>
+    <div class="menu-item" id="mNewProg">Nuova scheda</div>
+    <div class="menu-item" id="mAddProg">Importa scheda da file</div>
     <div class="menu-item" id="mAdd">Aggiungi esercizio a questa giornata</div>
     <div class="menu-item" id="mResetSets">Azzera progressi di questa settimana</div>
     <div class="menu-item" id="mExport">Esporta backup (file JSON)</div>
@@ -385,8 +406,10 @@
     <div id="progList"></div>
     <span class="field-lbl">Nome della scheda attiva</span>
     <input type="text" id="progRename" autocomplete="off" maxlength="40">
-    <span class="field-lbl">Data di inizio</span>
-    <input type="date" id="progStart">
+    <div class="grid2">
+      <div><span class="field-lbl">Data di inizio</span><input type="date" id="progStart"></div>
+      <div><span class="field-lbl">Settimane</span><input type="number" id="progWeeks" min="1" max="20" inputmode="numeric"></div>
+    </div>
     <button class="btn btn-primary" id="progSave" style="margin-top:14px;">Salva</button>
     <button class="btn btn-ghost" id="progClose" style="margin-top:8px;">Chiudi</button>
   </div>
@@ -398,6 +421,10 @@
     <div id="edBody"></div>
     <button class="btn btn-primary" id="edSave" style="margin-top:14px;">Salva</button>
     <button class="btn btn-ghost" id="edCancel" style="margin-top:8px;">Annulla</button>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="btn btn-ghost" id="edUp">↑ Sposta su</button>
+      <button class="btn btn-ghost" id="edDown">↓ Sposta giù</button>
+    </div>
     <button class="btn btn-danger" id="edDelete" style="margin-top:4px;">Elimina esercizio</button>
   </div>
 </div>
@@ -416,9 +443,23 @@
     <div class="seg" id="addType" style="margin-top:8px;">
       <button data-t="reps" class="on">Serie e ripetizioni</button>
       <button data-t="time">A tempo</button>
+      <button data-t="superset">Superset</button>
     </div>
-    <span class="field-lbl">Nome</span>
-    <input type="text" id="exName" autocomplete="off" placeholder="Nome esercizio">
+    <div id="addSingle">
+      <div class="grid2">
+        <div><span class="field-lbl">Nome</span><input type="text" id="exName" autocomplete="off" placeholder="es. Panca piana"></div>
+        <div><span class="field-lbl">Gruppo muscolare</span><input type="text" id="exGroup" autocomplete="off" placeholder="es. Petto"></div>
+      </div>
+    </div>
+    <div id="addSS" style="display:none;">
+      <span class="field-lbl">Primo esercizio</span><input type="text" id="ssA" autocomplete="off" placeholder="es. Alzate laterali">
+      <span class="field-lbl">Secondo esercizio</span><input type="text" id="ssB" autocomplete="off" placeholder="es. Dip panchetta">
+      <div class="grid2">
+        <div><span class="field-lbl">Ripetizioni</span><input type="text" id="ssReps" value="8-10" autocomplete="off"></div>
+        <div><span class="field-lbl">Giri</span><input type="number" id="ssRounds" value="3" min="1" inputmode="numeric"></div>
+      </div>
+      <span class="field-lbl">Recupero a fine giro (secondi)</span><input type="number" id="ssRest" value="60" min="0" inputmode="numeric">
+    </div>
     <div id="addReps">
       <span class="field-lbl">Schema (uguale per tutte le settimane)</span>
       <input type="text" id="exScheme" value="3x10" placeholder="es. 3x10 oppure 3x8 1x6(+kg)">
@@ -449,10 +490,41 @@
 
 <div class="modal" id="daySheet">
   <div class="sheet">
-    <h2>Rinomina giornata</h2>
+    <h2>Giornata</h2>
+    <span class="field-lbl">Nome</span>
     <input type="text" id="dayName" autocomplete="off" maxlength="20">
     <button class="btn btn-primary" id="daySave" style="margin-top:12px;">Salva</button>
+    <button class="btn btn-ghost" id="dayAdd" style="margin-top:8px;">Aggiungi una giornata</button>
     <button class="btn btn-ghost" id="dayCancel" style="margin-top:8px;">Annulla</button>
+    <button class="btn btn-danger" id="dayDel" style="margin-top:4px;">Elimina questa giornata</button>
+  </div>
+</div>
+
+<div class="modal" id="accessSheet">
+  <div class="sheet">
+    <h2>Richieste di accesso</h2>
+    <div class="field-hint" style="margin-bottom:6px;">Chi accede per la prima volta deve essere approvato da te. Ognuno vede solo le proprie schede.</div>
+    <div id="accList"></div>
+    <button class="btn btn-ghost" id="accClose" style="margin-top:14px;">Chiudi</button>
+  </div>
+</div>
+
+<div class="modal" id="newProgSheet">
+  <div class="sheet">
+    <h2>Nuova scheda</h2>
+    <span class="field-lbl">Nome</span>
+    <input type="text" id="npName" autocomplete="off" maxlength="40" placeholder="es. Scheda gennaio">
+    <div class="grid2">
+      <div><span class="field-lbl">Data di inizio</span><input type="date" id="npStart"></div>
+      <div><span class="field-lbl">Settimane</span><input type="number" id="npWeeks" value="6" min="1" max="20" inputmode="numeric"></div>
+    </div>
+    <span class="field-lbl">Giornate di allenamento</span>
+    <div class="seg" id="npDays">
+      <button data-n="1">1</button><button data-n="2" class="on">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button>
+    </div>
+    <div class="field-hint">Dopo la creazione aggiungi gli esercizi giornata per giornata. Nomi e giornate si possono cambiare quando vuoi.</div>
+    <button class="btn btn-primary" id="npCreate" style="margin-top:14px;">Crea scheda</button>
+    <button class="btn btn-ghost" id="npCancel" style="margin-top:8px;">Annulla</button>
   </div>
 </div>
 
@@ -963,20 +1035,38 @@
     var list=document.getElementById("list");
     list.innerHTML='<div class="empty-state"><div class="es-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg></div>'
       +'<h2>Nessuna scheda</h2>'
-      +(signed? '<p>Il tuo account non ha ancora schede. Aggiungine una da file.</p><button class="btn btn-primary" id="esAdd">Aggiungi scheda da file</button>'
+      +(signed? '<p>Il tuo account non ha ancora schede. Creane una o importala da file.</p><button class="btn btn-primary" id="esNew">Crea una scheda</button><button class="btn btn-ghost" id="esAdd">Importa da file</button>'
               : '<p>Le tue schede e i tuoi pesi sono salvati nel tuo account. Accedi per ritrovarli.</p><button class="btn btn-primary" id="esLogin">Accedi con Google</button>')
       +'</div>';
     var l=document.getElementById("esLogin"); if(l) l.onclick=function(){ document.getElementById("cloudBtn").click(); };
     var a=document.getElementById("esAdd"); if(a) a.onclick=function(){ importMode="program"; document.getElementById("importFile").click(); };
+    var n=document.getElementById("esNew"); if(n) n.onclick=openNewProg;
+  }
+  var gateInfo=null;
+  var GATE={
+    pending:{t:"Richiesta inviata", p:"Il proprietario dell’app deve approvare il tuo accesso. Questa pagina si aggiorna da sola appena vieni approvato."},
+    denied:{t:"Accesso non concesso", p:"Il proprietario non ha approvato l’accesso per questo account."},
+    error:{t:"Accesso non verificabile", p:"Non riesco a verificare il tuo accesso in questo momento. Riprova più tardi."}
+  };
+  function renderGate(){
+    document.body.classList.add("no-prog");
+    document.getElementById("progName").innerHTML='<div class="pt">Allenamento</div>';
+    var g=GATE[gateInfo.kind]||GATE.error;
+    document.getElementById("list").innerHTML='<div class="empty-state"><div class="es-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>'
+      +'<h2>'+esc(g.t)+'</h2><p>'+esc(g.p)+'</p>'
+      +'<button class="btn btn-ghost" id="gateOut">Esci</button>'
+      +'<div class="gate-code">Account: <b>'+esc(gateInfo.email||"—")+'</b><br>Codice utente: <b>'+esc(gateInfo.uid||"—")+'</b></div></div>';
+    document.getElementById("gateOut").onclick=function(){ if(typeof window.__cloudSignOut==="function") window.__cloudSignOut(); };
   }
   function render(){
+    if(gateInfo){ renderGate(); return; }
     if(!hasProg()){ renderEmpty(); return; }
     document.body.classList.remove("no-prog");
     renderHeader(); renderTabs(); renderWeeks();
     var list=document.getElementById("list"); list.innerHTML="";
     var exs=day().exercises, visible=exs.filter(scheduled), sub=document.getElementById("sub"), bar=document.getElementById("barFill");
     if(!visible.length){
-      list.innerHTML='<div class="empty">Nessun esercizio in questa giornata. Aggiungine uno dal menu.</div>';
+      list.innerHTML='<div class="empty">Nessun esercizio in questa giornata.</div>';
       sub.innerHTML=""; bar.style.width="0";
     }else{
       var done=visible.filter(isDone).length;
@@ -997,6 +1087,8 @@
       else renderTime(ex,card,finished);
       list.appendChild(card);
     });
+    var add=document.createElement("button"); add.className="add-ex"; add.textContent="+ Aggiungi esercizio";
+    add.onclick=openAdd; list.appendChild(add);
   }
 
   /* ===================== storico ===================== */
@@ -1118,13 +1210,49 @@
     });
     document.getElementById("progRename").value=prog().name;
     document.getElementById("progStart").value=prog().start||"";
+    document.getElementById("progWeeks").value=nWeeks();
     document.getElementById("progSheet").classList.add("open");
+  }
+
+  // cambia il numero di settimane: le settimane nuove copiano lo schema dell'ultima
+  function fitWeeks(arr, n){
+    arr=(arr||[]).slice(0,n); var last=""; for(var i=arr.length-1;i>=0;i--) if(arr[i]){ last=arr[i]; break; }
+    while(arr.length<n) arr.push(last); return arr;
+  }
+  function setWeeks(p, n){
+    p.weeks=n;
+    p.days.forEach(function(d){ d.exercises.forEach(function(ex){
+      if(ex.type==="reps") ex.weeks=fitWeeks(ex.weeks,n);
+      if(ex.type==="superset") ex.items.forEach(function(it){ it.weeks=fitWeeks(it.weeks,n); });
+    }); });
+    var u=state.ui[p.id]; if(u && u.week>=n) u.week=n-1;
+  }
+  function nextMonday(){
+    var d=new Date(); var add=(8-d.getDay())%7; d.setDate(d.getDate()+add);
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  }
+  var npDays=2;
+  function openNewProg(){
+    closeModal("menuSheet");
+    document.getElementById("npName").value=""; document.getElementById("npStart").value=nextMonday(); document.getElementById("npWeeks").value=6;
+    npDays=2; document.querySelectorAll("#npDays button").forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-n")==="2"); });
+    document.getElementById("newProgSheet").classList.add("open");
+    setTimeout(function(){ document.getElementById("npName").focus(); },150);
+  }
+  function openAdd(){
+    if(!hasProg()) return;
+    closeModal("menuSheet"); setAddMode(addMode||"reps");
+    document.getElementById("addSheet").classList.add("open");
   }
 
   /* ===================== modali e menu ===================== */
   function closeModal(id){ document.getElementById(id).classList.remove("open"); }
-  function openRenameDay(){ document.getElementById("dayName").value=day().name; document.getElementById("daySheet").classList.add("open"); }
-  ["menuSheet","progSheet","editSheet","histSheet","addSheet","daySheet","cloudHistSheet"].forEach(function(id){
+  function openRenameDay(){
+    document.getElementById("dayName").value=day().name;
+    document.getElementById("dayDel").style.display=prog().days.length>1?"":"none";
+    document.getElementById("daySheet").classList.add("open");
+  }
+  ["menuSheet","progSheet","editSheet","histSheet","addSheet","daySheet","cloudHistSheet","newProgSheet","accessSheet"].forEach(function(id){
     var m=document.getElementById(id); m.addEventListener("click",function(e){ if(e.target===m) closeModal(id); });
   });
 
@@ -1152,7 +1280,20 @@
   document.getElementById("progName").onkeydown=function(e){ if(e.key==="Enter" && hasProg()) openProgs(); };
   document.getElementById("mClose").onclick=function(){ closeModal("menuSheet"); };
   document.getElementById("mProgs").onclick=function(){ closeModal("menuSheet"); openProgs(); };
-  document.getElementById("mAdd").onclick=function(){ closeModal("menuSheet"); document.getElementById("addSheet").classList.add("open"); };
+  document.getElementById("mAdd").onclick=openAdd;
+  document.getElementById("mNewProg").onclick=openNewProg;
+  document.querySelectorAll("#npDays button").forEach(function(b){ b.onclick=function(){
+    npDays=+b.getAttribute("data-n"); document.querySelectorAll("#npDays button").forEach(function(x){ x.classList.toggle("on", x===b); });
+  }; });
+  document.getElementById("npCancel").onclick=function(){ closeModal("newProgSheet"); };
+  document.getElementById("npCreate").onclick=function(){
+    var nm=document.getElementById("npName"); if(!nm.value.trim()){ nm.focus(); return; }
+    var w=Math.min(20,Math.max(1,parseInt(document.getElementById("npWeeks").value,10)||6)), days=[];
+    for(var i=0;i<npDays;i++) days.push({name:"Giorno "+(i+1), exercises:[]});
+    var p={id:"s-"+Date.now().toString(36), name:nm.value.trim(), start:document.getElementById("npStart").value||nextMonday(), weeks:w, days:days};
+    closeModal("newProgSheet");
+    if(addProgram(p)) toast("Scheda creata: ora aggiungi gli esercizi");
+  };
   document.getElementById("mResetSets").onclick=function(){
     closeModal("menuSheet");
     if(!confirm("Azzerare i progressi di "+day().name+", settimana "+(wk()+1)+"?")) return;
@@ -1194,6 +1335,8 @@
   document.getElementById("progSave").onclick=function(){
     var n=document.getElementById("progRename").value.trim(); if(n) prog().name=n;
     var s=document.getElementById("progStart").value; prog().start=s||prog().start;
+    var nw=Math.min(20,Math.max(1,parseInt(document.getElementById("progWeeks").value,10)||nWeeks()));
+    if(nw!==nWeeks()) setWeeks(prog(), nw);
     save(); render(); closeModal("progSheet"); toast("Scheda aggiornata");
   };
   document.getElementById("progClose").onclick=function(){ closeModal("progSheet"); };
@@ -1208,29 +1351,59 @@
     document.querySelectorAll("#addType button").forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-t")===m); });
     document.getElementById("addReps").style.display=m==="reps"?"block":"none";
     document.getElementById("addTimed").style.display=m==="time"?"block":"none";
+    document.getElementById("addSingle").style.display=m==="superset"?"none":"block";
+    document.getElementById("addSS").style.display=m==="superset"?"block":"none";
   }
   document.querySelectorAll("#addType button").forEach(function(b){ b.onclick=function(){ setAddMode(b.getAttribute("data-t")); }; });
   document.getElementById("addCancel").onclick=function(){ closeModal("addSheet"); };
   document.getElementById("addBtn").onclick=function(){
-    var n=document.getElementById("exName"); if(!n.value.trim()){ n.focus(); return; }
+    var n=document.getElementById("exName"), g=document.getElementById("exGroup").value.trim();
     var exs=day().exercises, ex;
-    if(addMode==="time"){
+    if(addMode==="superset"){
+      var a=document.getElementById("ssA"), b=document.getElementById("ssB");
+      if(!a.value.trim()){ a.focus(); return; } if(!b.value.trim()){ b.focus(); return; }
+      var rr=document.getElementById("ssReps").value.trim()||"8-10", wa=[], wb=[];
+      for(var k=0;k<nWeeks();k++){ wa.push(rr); wb.push(rr); }
+      ex={id:uid(), type:"superset", name:"Superset", rounds:Math.max(1,parseInt(document.getElementById("ssRounds").value,10)||3),
+          rest:Math.max(0,parseInt(document.getElementById("ssRest").value,10)||0),
+          items:[{name:a.value.trim(), group:"", weeks:wa},{name:b.value.trim(), group:"", weeks:wb}]};
+      a.value=""; b.value="";
+    }else if(!n.value.trim()){ n.focus(); return; }
+    else if(addMode==="time"){
       var sec=(parseInt(document.getElementById("exMin").value,10)||0)*60+(parseInt(document.getElementById("exSec").value,10)||0);
       if(sec<=0){ toast("Imposta una durata"); return; }
-      ex=time(uid(), n.value.trim(), sec, "");
+      ex=time(uid(), n.value.trim(), sec, g);
     }else{
       var sc=document.getElementById("exScheme").value.trim()||"3x10", weeks=[];
       for(var i=0;i<nWeeks();i++) weeks.push(sc);
-      ex=rep(uid(), n.value.trim(), "", Math.max(0,parseInt(document.getElementById("exRest").value,10)||0), weeks, "");
+      ex=rep(uid(), n.value.trim(), g, Math.max(0,parseInt(document.getElementById("exRest").value,10)||0), weeks, "");
     }
-    // inserisce prima dello scarico finale, se c’è
-    var last=exs[exs.length-1];
-    if(last && last.type==="time" && exs.length>1) exs.splice(exs.length-1,0,ex); else exs.push(ex);
-    n.value=""; save(); render(); closeModal("addSheet"); toast("Esercizio aggiunto");
+    exs.push(ex);   // in fondo; si può spostare con ✎ → Sposta su
+    n.value=""; document.getElementById("exGroup").value=""; save(); render(); closeModal("addSheet"); toast("Esercizio aggiunto");
   };
 
   document.getElementById("daySave").onclick=function(){ var nm=document.getElementById("dayName").value.trim(); if(nm){ day().name=nm; save(); render(); } closeModal("daySheet"); };
   document.getElementById("dayCancel").onclick=function(){ closeModal("daySheet"); };
+  document.getElementById("dayAdd").onclick=function(){
+    var p=prog(), i=ui().day+1;
+    p.days.splice(i,0,{name:"Giorno "+(p.days.length+1), exercises:[]});
+    ui().day=i; save(); render(); closeModal("daySheet"); toast("Giornata aggiunta");
+  };
+  document.getElementById("dayDel").onclick=function(){
+    var p=prog(); if(p.days.length<=1) return;
+    var d=day(), n=d.exercises.length;
+    if(!confirm("Eliminare \""+d.name+"\""+(n? " con i suoi "+n+" esercizi" : "")+"? I pesi registrati di questi esercizi non saranno più visibili.")) return;
+    p.days.splice(ui().day,1); ui().day=Math.max(0,ui().day-1);
+    save(); render(); closeModal("daySheet"); toast("Giornata eliminata");
+  };
+  function moveEx(dir){
+    var exs=day().exercises, i=exs.findIndex(function(e){ return e.id===editId; }), j=i+dir;
+    if(i<0 || j<0 || j>=exs.length) return;
+    var t=exs[i]; exs[i]=exs[j]; exs[j]=t;
+    save(); render(); closeModal("editSheet");
+  }
+  document.getElementById("edUp").onclick=function(){ moveEx(-1); };
+  document.getElementById("edDown").onclick=function(){ moveEx(1); };
 
   document.getElementById("t-15").onclick=function(){ tAdjust(-15); };
   document.getElementById("t+15").onclick=function(){ tAdjust(15); };
@@ -1304,7 +1477,23 @@
     toast:toast,
     reset:function(){ state=normalize(null); try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
       if(_saveTimer) clearTimeout(_saveTimer); var done=_db? idbPut(state).catch(function(){}) : Promise.resolve(); render(); return done; },
-    refresh:function(){ if(state && !hasProg()) render(); }
+    refresh:function(){ if(state && (!hasProg() || gateInfo)) render(); },
+    gate:function(info){ gateInfo=info||null; render(); },
+    // elenco richieste (solo per il proprietario; null = non sei il proprietario)
+    setAccess:function(rows){
+      accessRows=rows;
+      var item=document.getElementById("mAccess"), n=rows? rows.filter(function(r){ return (r.status||"pending")==="pending"; }).length : 0;
+      item.style.display=rows? "" : "none";
+      document.getElementById("accBadge").textContent=n? String(n) : "";
+      document.getElementById("menuBtn").classList.toggle("has-req", n>0);
+      if(rows){
+        var pend=rows.filter(function(r){ return (r.status||"pending")==="pending"; });
+        if(accessSeen===null){ if(pend.length) toast(pend.length===1? "1 richiesta di accesso in attesa" : pend.length+" richieste di accesso in attesa"); }
+        else pend.forEach(function(r){ if(!accessSeen[r.uid]) toast("Nuova richiesta di accesso: "+(r.email||r.name||"utente")); });
+        accessSeen={}; pend.forEach(function(r){ accessSeen[r.uid]=1; });
+      } else accessSeen=null;
+      if(document.getElementById("accessSheet").classList.contains("open")) renderAccess();
+    }
   };
   function entrySize(v){
     if(v==null||v===false) return 0;
@@ -1353,6 +1542,39 @@
     }).catch(function(){ box.innerHTML='<div class="empty" style="padding:24px 0;">Cronologia non disponibile ora (serve la rete).</div>'; });
   };
   document.getElementById("cloudHistClose").onclick=function(){ closeModal("cloudHistSheet"); };
+
+  var accessRows=null, accessSeen=null;
+  function renderAccess(){
+    var box=document.getElementById("accList"); box.innerHTML="";
+    var rows=(accessRows||[]).slice().sort(function(a,b){ return (b.requestedAt||0)-(a.requestedAt||0); });
+    var groups=[["pending","In attesa"],["approved","Con accesso"],["denied","Rifiutati"]];
+    var any=false;
+    groups.forEach(function(g){
+      var list=rows.filter(function(r){ return (r.status||"pending")===g[0]; }); if(!list.length) return; any=true;
+      var h=document.createElement("div"); h.className="acc-group"; h.textContent=g[1]+" · "+list.length; box.appendChild(h);
+      list.forEach(function(r){
+        var el=document.createElement("div"); el.className="acc-row";
+        var when=r.requestedAt? new Date(r.requestedAt).toLocaleDateString("it-IT",{day:"numeric",month:"short"}) : "";
+        el.innerHTML='<div class="who"><b>'+esc(r.name||r.email||r.uid)+'</b><span>'+esc(r.email||"")+(when?" · "+when:"")+'</span></div>';
+        var acts=g[0]==="pending"? [["approved","Approva","btn-primary"],["denied","Rifiuta","btn-ghost"]]
+                : g[0]==="approved"? [["denied","Revoca","btn-ghost"]] : [["approved","Approva","btn-ghost"]];
+        acts.forEach(function(a){
+          var b=document.createElement("button"); b.className="btn "+a[2]; b.textContent=a[1];
+          b.onclick=function(){
+            if(a[0]==="denied" && g[0]==="approved" && !confirm("Togliere l’accesso a "+(r.email||r.name)+"? I suoi dati restano salvati ma non potrà più usarli.")) return;
+            b.disabled=true;
+            window.__accessSet(r.uid,a[0]).then(function(){ toast(a[0]==="approved"?"Accesso concesso":"Accesso negato"); })
+              .catch(function(){ b.disabled=false; toast("Operazione non riuscita"); });
+          };
+          el.appendChild(b);
+        });
+        box.appendChild(el);
+      });
+    });
+    if(!any) box.innerHTML='<div class="empty" style="padding:24px 0;">Nessuna richiesta finora.</div>';
+  }
+  document.getElementById("mAccess").onclick=function(){ closeModal("menuSheet"); renderAccess(); document.getElementById("accessSheet").classList.add("open"); };
+  document.getElementById("accClose").onclick=function(){ closeModal("accessSheet"); };
   document.getElementById("mSignOut").onclick=function(){
     closeModal("menuSheet");
     if(typeof window.__cloudSignOut==="function") window.__cloudSignOut();
@@ -1368,6 +1590,7 @@
    users/{uid}/programs/{idScheda}       una scheda: esercizi, schemi, pesi e serie (campi leggibili)
    users/{uid}/history/{settimana}       riepilogo settimanale leggero (creato una volta, mai modificato)
    users/{uid}/history/{settimana}/copy/full   copia completa di quella settimana
+   access/{uid}                          richieste di accesso (pending / approved / denied), decise dal proprietario
    Si scrive solo la scheda cambiata; ogni scrittura è una transazione che unisce i dati
    se un altro dispositivo ha salvato nel frattempo. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -1394,6 +1617,7 @@ const histItem = document.getElementById("mCloudHist");
 const SYNC_KEY = "allenamento_sync_v3", WEEK_KEY = "allenamento_hist_week";
 const DEBOUNCE = 4000;
 let user = null, unsub = null, pushTimer = null, ready = false;
+let accUnsub = null, ownerUnsub = null, selfUnsub = null, gen = 0;
 let sync = { uid: null, h: {}, t: {}, migrated: false };   // per scheda: impronta e versione già sincronizzate
 let pushing = false, again = false, pending = false;
 
@@ -1565,23 +1789,62 @@ async function migrateOld(app){
   }catch(e){ console.error("migrazione", e); }
 }
 
-onAuthStateChanged(auth, async (u) => {
-  user = u; ready = false;
-  if(unsub){ unsub(); unsub = null; }
-  if(!u){
-    outItem.style.display = "none"; histItem.style.display = "none";
-    try{ localStorage.removeItem(SYNC_KEY); }catch(e){}
-    status("off", "Accedi");
-    return;
-  }
-  outItem.style.display = ""; histItem.style.display = "";
-  document.getElementById("mSignOutTxt").textContent = "Esci (" + (u.email || "account Google") + ")";
-  status("busy", "Carico…");
-  sync = loadSync(u.uid);
-  const app = await waitApp();
+function stopListeners(){
+  [unsub, accUnsub, ownerUnsub, selfUnsub].forEach(f => { try{ f && f(); }catch(e){} });
+  unsub = accUnsub = ownerUnsub = selfUnsub = null;
+}
+
+// ---- accesso: chi non è approvato invia una richiesta e aspetta ----
+async function accessGate(app, g){
+  ready = false; status("warn", "In attesa");
+  const info = k => ({ kind: k, email: user.email || "", uid: user.uid });
+  const a = doc(db, "access", user.uid);
+  try{
+    const s = await getDoc(a);
+    if(g !== gen) return;
+    if(!s.exists()) await setDoc(a, { email: user.email || "", name: user.displayName || "", status: "pending", requestedAt: serverTimestamp() });
+  }catch(e){ console.error(e); if(g === gen) app.gate(info("error")); return; }
+  if(g !== gen) return;
+  accUnsub = onSnapshot(a, (snap) => {
+    const st = snap.exists() ? (snap.data().status || "pending") : "pending";
+    if(st === "approved"){
+      if(accUnsub){ accUnsub(); accUnsub = null; }
+      app.gate(null); status("busy", "Carico…"); startSync(app, g);
+    }else app.gate(info(st === "denied" ? "denied" : "pending"));
+  }, (e) => { console.error(e); app.gate(info("error")); });
+}
+window.__accessSet = (uid, st) => setDoc(doc(db, "access", uid), { status: st, decidedAt: serverTimestamp() }, { merge: true });
+
+// proprietario: vede le richieste. Gli altri: si controlla che l'accesso non venga revocato
+function watchAccess(app, g){
+  if(ownerUnsub || selfUnsub) return;
+  const rows = {};
+  ownerUnsub = onSnapshot(collection(db, "access"), (snap) => {
+    snap.forEach(d => {
+      const v = d.data() || {}, t = v.requestedAt;
+      rows[d.id] = { uid: d.id, email: v.email || "", name: v.name || "", status: v.status || "pending",
+        requestedAt: t ? (t.toMillis ? t.toMillis() : (t.serverTs || 0)) : 0 };
+    });
+    app.setAccess(Object.values(rows));
+  }, () => {
+    ownerUnsub = null; app.setAccess(null);
+    if(g !== gen || !user) return;
+    selfUnsub = onSnapshot(doc(db, "access", user.uid), (snap) => {
+      if(snap.exists() && snap.data().status !== "approved"){
+        if(unsub){ unsub(); unsub = null; }
+        if(selfUnsub){ selfUnsub(); selfUnsub = null; }
+        accessGate(app, g);
+      }
+    }, () => {});
+  });
+}
+
+// ---- sincronizzazione delle schede ----
+function startSync(app, g){
   let first = true;
   // un solo ascolto per tutte le schede: alla prima lettura arrivano tutte, poi solo quelle cambiate
-  unsub = onSnapshot(collection(db, "users", u.uid, "programs"), async (snap) => {
+  unsub = onSnapshot(collection(db, "users", user.uid, "programs"), async (snap) => {
+    if(g !== gen) return;
     let needPush = false;
     snap.forEach(d => {
       if(d.metadata && d.metadata.hasPendingWrites) return;
@@ -1595,13 +1858,40 @@ onAuthStateChanged(auth, async (u) => {
     });
     if(first){
       first = false;
+      app.gate(null);
       if(snap.empty && !sync.migrated) await migrateOld(app);
       sync.migrated = true; saveSync();
       ready = true;
       if(dirty()) needPush = true; else status("ok", "Salvato");
+      watchAccess(app, g);
     }
     if(needPush) push();
-  }, (e) => { console.error(e); ready = true; pending = true; failStatus(); });
+  }, (e) => {
+    console.error(e);
+    if(g !== gen) return;
+    unsub = null;
+    if(e && e.code === "permission-denied") accessGate(app, g);
+    else { ready = true; pending = true; failStatus(); }
+  });
+}
+
+onAuthStateChanged(auth, async (u) => {
+  user = u; ready = false; const g = ++gen;
+  stopListeners();
+  if(!u){
+    outItem.style.display = "none"; histItem.style.display = "none";
+    try{ localStorage.removeItem(SYNC_KEY); }catch(e){}
+    if(window.__app && window.__app.setAccess){ window.__app.setAccess(null); window.__app.gate(null); }
+    status("off", "Accedi");
+    return;
+  }
+  outItem.style.display = ""; histItem.style.display = "";
+  document.getElementById("mSignOutTxt").textContent = "Esci (" + (u.email || "account Google") + ")";
+  status("busy", "Carico…");
+  sync = loadSync(u.uid);
+  const app = await waitApp();
+  if(g !== gen) return;
+  startSync(app, g);
 });
 </script>
 </body>
