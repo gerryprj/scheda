@@ -84,8 +84,6 @@
   /* esercizi: blocchi separati da linee sottili */
   #list{margin-top:18px;}
   .card{background:var(--surface); border:.5px solid var(--line); border-radius:18px; padding:18px 18px 16px; margin-bottom:12px; position:relative; overflow:hidden;}
-  .card.active{border-color:rgba(255,125,46,.45); box-shadow:0 0 0 1px rgba(255,125,46,.12), 0 10px 30px -12px rgba(255,125,46,.35);}
-  .card.active::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--grad);}
   .card.ex-done{background:transparent;}
   .ex-done > *:not(.ex-head):not(.done-row){display:none;}
   .ex-done .ex-name{color:var(--muted);}
@@ -125,6 +123,51 @@
   .check svg{width:16px; height:16px; opacity:0;}
   .check.next{border-color:var(--accent); background:var(--accent-dim);}
   .check.next svg{opacity:.35; color:var(--accent);}
+  /* esercizio attivo: riquadro arancione, testo scuro */
+  .card .ex-head > div:first-child{cursor:pointer;}
+  .card.active{--ink:#2b1204; --ink2:rgba(43,18,4,.62); --ink3:rgba(43,18,4,.16);
+    background:var(--grad); border-color:transparent; color:var(--ink); padding:22px 20px 18px;
+    box-shadow:0 18px 44px -16px rgba(255,125,46,.65);}
+  .card.active .ex-name{font-size:21px; color:var(--ink);}
+  .card.active .ex-meta, .card.active .ex-note, .card.active .last, .card.active .last b,
+  .card.active .setidx, .card.active .kg-wrap, .card.active .ci-name small, .card.active .ci-reps,
+  .card.active .dots .lbl, .card.active .btn-text{color:var(--ink2);}
+  .card.active .last b{font-weight:600;}
+  .card.active .ex-meta .g{color:var(--ink); font-weight:700;}
+  .card.active .mini-btn{color:var(--ink2);}
+  .card.active .mini-btn:active{background:rgba(43,18,4,.1); color:var(--ink);}
+  .card.active .sets{margin-top:16px;}
+  .card.active .setrow{min-height:66px; border-top-color:var(--ink3);}
+  .card.active .settarget{font-size:18px; color:var(--ink); font-weight:500;}
+  .card.active .setrow.done .settarget, .card.active .setrow.locked .settarget{color:var(--ink2);}
+  .card.active .setidx{font-size:14px;}
+  .card.active .flag.up{color:var(--ink); background:rgba(255,255,255,.4); padding:1px 7px; border-radius:6px;}
+  .card.active .flag.drop{color:var(--ink2);}
+  .card.active .check{width:44px; height:44px; border-color:rgba(43,18,4,.3); background:none;}
+  .card.active .check svg{width:20px; height:20px; opacity:0;}
+  .card.active .check.on{background:var(--ink); border-color:var(--ink); color:var(--accent-2);}
+  .card.active .check.on svg{opacity:1;}
+  .card.active .setrow.next{background:rgba(255,255,255,.26); border-radius:16px; margin:6px -12px; padding:0 12px;
+    min-height:76px; border-top-color:transparent; cursor:pointer; transition:background .15s;}
+  .card.active .setrow.next:active{background:rgba(255,255,255,.4);}
+  .card.active .setrow.next + .setrow{border-top-color:transparent;}
+  .card.active .setrow.next .check{border-color:var(--ink);}
+  .card.active .setrow.next .check svg{opacity:.45; color:var(--ink);}
+  .card.active .kg-wrap{min-height:50px; min-width:112px; justify-content:flex-end; align-items:center;
+    padding:0 12px 0 10px; border-radius:12px; cursor:text; background:rgba(43,18,4,.1);}
+  .card.active .kg{font-size:21px !important; width:66px !important; color:var(--ink) !important; border-bottom:none !important;}
+  .card.active .kg::placeholder{color:var(--ink2);}
+  .card.active .setrow.next .kg-wrap{background:var(--ink); color:rgba(255,255,255,.6);}
+  .card.active .setrow.next .kg{color:#fff !important;}
+  .card.active .setrow.next .kg::placeholder{color:rgba(255,255,255,.5);}
+  .card.active .circ-item{min-height:60px; border-top-color:var(--ink3);}
+  .card.active .ci-name{color:var(--ink);}
+  .card.active .dot{background:rgba(43,18,4,.2);}
+  .card.active .dot.filled{background:var(--ink);}
+  .card.active .btn-primary{background:var(--ink); color:var(--accent-2); box-shadow:none; padding:16px; font-size:16px;}
+  .card.active .btn-ghost{border-color:rgba(43,18,4,.35); color:var(--ink);}
+  .card.active .done-row span{color:var(--ink); font-weight:600;}
+  @media (prefers-reduced-motion: reduce){ .card.active .setrow.next{transition:none;} }
   .card:not(.active) .check.next{border-color:var(--line2); background:none;}
   .card:not(.active) .check.next svg{opacity:0;}
   .check.on{background:var(--grad); border-color:transparent; color:var(--accent-ink);}
@@ -610,12 +653,15 @@
     return "";
   }
 
+  var focusId=null;   // esercizio scelto toccando il nome o una serie (solo su questo dispositivo)
+  function setFocus(id){ if(focusId!==id){ focusId=id; render(); } }
   function completeSet(id,kg){
     var ex=findEx(id); if(!ex) return;
     var sets=setsFor(ex,wk()), arr=repsArr(ex,wk());
     if(arr.length>=sets.length) return;
     delete drafts[id+"|"+wk()+"|"+arr.length];
     arr.push({kg:kg});
+    focusId = arr.length>=sets.length ? null : id;   // finito: passa al prossimo esercizio
     save(); render();
     if(arr.length<sets.length && ex.rest>0) startTimer(ex.name, ex.rest, "rest", null, nextLabelAfter(ex));
     else if(arr.length>=sets.length) toast("Esercizio completato ✓");
@@ -627,7 +673,7 @@
   function completeRound(id){
     var ex=findEx(id); if(!ex) return;
     var l=exLog(ex.id), r=l[wk()]||0; if(r>=ex.rounds) return;
-    l[wk()]=r+1; save(); render();
+    l[wk()]=r+1; focusId = r+1>=ex.rounds ? null : id; save(); render();
     if(r+1<ex.rounds && ex.rest>0) startTimer(ex.name+" · giro "+(r+2), ex.rest, "rest");
     else if(r+1>=ex.rounds) toast("Fatto ✓");
   }
@@ -637,16 +683,17 @@
     if(lg.r>=ex.rounds) return;
     // fissa i pesi mostrati (anche quelli precompilati)
     ex.items.forEach(function(it,i){ if(lg.kg[i]==null){ var d=ssDefaultKg(ex,wk(),i); if(d!=null) lg.kg[i]=d; } });
-    lg.r++; save(); render();
+    lg.r++; focusId = lg.r>=ex.rounds ? null : id; save(); render();
     if(lg.r<ex.rounds && ex.rest>0) startTimer("Superset · giro "+(lg.r+1), ex.rest, "rest", null, "Prossimo: giro "+(lg.r+1)+" di "+ex.rounds);
     else if(lg.r>=ex.rounds) toast("Superset completato ✓");
   }
   function undoSSRound(id){ var ex=findEx(id); var lg=ssLog(ex,wk()); if(lg.r>0){ lg.r--; save(); render(); } }
   function startTimed(id){
     var ex=findEx(id); if(!ex) return;
-    startTimer(ex.name, ex.dur, "work", function(){ var l=exLog(id); l[wk()]=true; save(); render(); toast("Esercizio completato ✓"); });
+    focusId=id; render();
+    startTimer(ex.name, ex.dur, "work", function(){ var l=exLog(id); l[wk()]=true; if(focusId===id) focusId=null; save(); render(); toast("Esercizio completato ✓"); });
   }
-  function toggleTimed(id){ var l=exLog(id); l[wk()]=!l[wk()]; save(); render(); }
+  function toggleTimed(id){ var l=exLog(id); l[wk()]=!l[wk()]; if(l[wk()] && focusId===id) focusId=null; save(); render(); }
 
   /* ===================== timer ===================== */
   function beep(){
@@ -752,6 +799,10 @@
     var head=document.createElement("div"); head.className="ex-head";
     head.innerHTML='<div><div class="ex-name">'+esc(ex.name)+'</div><div class="ex-meta">'+metaHtml+'</div>'
       +(ex.note?'<div class="ex-note">'+esc(ex.note)+'</div>':'')+'</div>';
+    var left=head.firstChild;
+    left.setAttribute("role","button"); left.tabIndex=0;
+    left.onclick=function(){ setFocus(ex.id); };
+    left.onkeydown=function(ev){ if(ev.key==="Enter") setFocus(ex.id); };
     var btns=document.createElement("div"); btns.className="head-btns";
     if(ex.type==="reps"||ex.type==="superset"){
       var h=document.createElement("button"); h.className="mini-btn"; h.innerHTML=ICON.chart; h.setAttribute("aria-label","Storico pesi");
@@ -790,7 +841,7 @@
     var box=document.createElement("div"); box.className="sets";
     sets.forEach(function(s,i){
       var doneThis=i<arr.length, isNext=(i===arr.length);
-      var row=document.createElement("div"); row.className="setrow"+(doneThis?" done":(isNext?"":" locked"));
+      var row=document.createElement("div"); row.className="setrow"+(doneThis?" done":(isNext?" next":" locked"));
       var idx=document.createElement("span"); idx.className="setidx"; idx.textContent=(i+1);
       var tgt=document.createElement("span"); tgt.className="settarget";
       var desc = s.drop ? s.reps+" + "+s.reps+" rip" : repsLabel(s.reps);
@@ -798,11 +849,16 @@
       row.appendChild(idx); row.appendChild(tgt);
       var ck=document.createElement("button"); ck.innerHTML=ICON.check;
       if(doneThis){
-        var kd=document.createElement("span"); kd.className="kg-done";
-        kd.innerHTML=arr[i].kg!=null? esc(kgTxt(arr[i].kg))+" <small>kg</small>" : "";
-        row.appendChild(kd);
+        var dkw=document.createElement("span"); dkw.className="kg-wrap";
+        var dinp=document.createElement("input"); dinp.type="number"; dinp.className="kg"; dinp.step="0.5"; dinp.min="0";
+        dinp.setAttribute("inputmode","decimal"); dinp.placeholder="—"; dinp.setAttribute("aria-label","Peso serie "+(i+1)+", già fatta");
+        if(arr[i].kg!=null) dinp.value=arr[i].kg;
+        dinp.onchange=function(){ arr[i].kg=parseKg(dinp.value); save(); };
+        dkw.appendChild(dinp); dkw.appendChild(document.createTextNode("kg"));
+        dkw.onclick=function(ev){ ev.stopPropagation(); if(ev.target!==dinp) dinp.focus(); };
+        row.appendChild(dkw);
         ck.className="check on"; ck.setAttribute("aria-label","Serie "+(i+1)+" fatta, tocca per annullare");
-        ck.onclick=function(){ undoSet(ex.id,i); };
+        ck.onclick=function(ev){ ev.stopPropagation(); undoSet(ex.id,i); };
       }else{
         var kw=document.createElement("span"); kw.className="kg-wrap";
         var inp=document.createElement("input"); inp.type="number"; inp.className="kg"; inp.step="0.5"; inp.min="0";
@@ -810,10 +866,17 @@
         var dv=defaultKg(ex,w,i); if(dv!=null) inp.value=dv;
         inp.oninput=function(){ drafts[ex.id+"|"+w+"|"+i]=parseKg(inp.value); };
         kw.appendChild(inp); kw.appendChild(document.createTextNode("kg"));
+        kw.onclick=function(ev){ ev.stopPropagation(); if(ev.target!==inp) inp.focus(); };
         row.appendChild(kw);
         ck.className="check"+(isNext?" next":"");
         ck.setAttribute("aria-label","Segna serie "+(i+1)+" come fatta");
-        if(isNext) ck.onclick=function(){ completeSet(ex.id, parseKg(inp.value)); }; else ck.disabled=true;
+        if(isNext){
+          ck.tabIndex=-1; ck.setAttribute("aria-hidden","true");
+          row.setAttribute("role","button"); row.tabIndex=0;
+          row.setAttribute("aria-label","Serie "+(i+1)+", "+desc+": tocca per segnarla fatta");
+          row.onclick=function(){ completeSet(ex.id, parseKg(inp.value)); };
+          row.onkeydown=function(ev){ if((ev.key==="Enter"||ev.key===" ") && ev.target===row){ ev.preventDefault(); completeSet(ex.id, parseKg(inp.value)); } };
+        } else ck.disabled=true;
       }
       row.appendChild(ck);
       box.appendChild(row);
@@ -910,12 +973,14 @@
       sub.innerHTML="<span><b>"+done+"</b> di "+visible.length+" esercizi</span><span>Settimana "+(wk()+1)+" di "+nWeeks()+"</span>";
       bar.style.width=Math.round(done/visible.length*100)+"%";
     }
-    var activeSet=false;
+    var activeId=null;
+    if(focusId && visible.some(function(e){ return e.id===focusId; })) activeId=focusId;
+    else { var firstOpen=visible.find(function(e){ return !isDone(e); }); activeId=firstOpen? firstOpen.id : null; }
     exs.forEach(function(ex){
       if(!scheduled(ex)) return;
       var finished=isDone(ex);
-      var isActive=!finished && !activeSet; if(isActive) activeSet=true;
-      var card=document.createElement("section"); card.className="card"+(finished?" ex-done":"")+(isActive?" active":"");
+      var isActive=(ex.id===activeId);
+      var card=document.createElement("section"); card.className="card"+(finished&&!isActive?" ex-done":"")+(isActive?" active":"");
       if(ex.type==="reps") renderReps(ex,card,finished);
       else if(ex.type==="superset") renderSuperset(ex,card,finished);
       else if(ex.type==="circuit") renderCircuit(ex,card,finished);
